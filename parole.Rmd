@@ -1,0 +1,157 @@
+---
+title: "ParoleViolationPrediction"
+author: "David Fong"
+date: "3/9/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Predicting parole violators
+
+In many criminal justice systems around the world, inmates deemed not to be a threat to society are released from prison under the parole system prior to completing their sentence. They are still considered to be serving their sentence while on parole, and they can be returned to prison if they violate the terms of their parole.
+
+Parole boards are charged with identifying which inmates are good candidates for release on parole. They seek to release inmates who will not commit additional crimes after release. In this problem, we will build and validate a model that predicts if an inmate will violate the terms of his or her parole. Such a model could be useful to a parole board when deciding to approve or deny an application for parole.
+
+For this prediction task, we will use data from the United States 2004 National Corrections Reporting Program, a nationwide census of parole releases that occurred during 2004. We limited our focus to parolees who served no more than 6 months in prison and whose maximum sentence for all charges did not exceed 18 months. The dataset contains all such parolees who either successfully completed their term of parole during 2004 or those who violated the terms of their parole during that year. The dataset contains the following variables:
+
+(For MITx course 'The Analytics Edge' 15.071x)
+
+## Data
+
+```{r data}
+parole <- read.csv('parole.csv')
+
+```
+
+
+*    male: 1 if the parolee is male, 0 if female
+*    race: 1 if the parolee is white, 2 otherwise
+*    age: the parolee's age (in years) when he or she was released from prison
+*    state: a code for the parolee's state. 2 is Kentucky, 3 is Louisiana, 4 is Virginia, and 1 is any other state. The three states were selected due to having a high representation in the dataset.
+*    time.served: the number of months the parolee served in prison (limited by the inclusion criteria to not exceed 6 months).
+*    max.sentence: the maximum sentence length for all charges, in months (limited by the inclusion criteria to not exceed 18 months).
+*    multiple.offenses: 1 if the parolee was incarcerated for multiple offenses, 0 otherwise.
+*    crime: a code for the parolee's main crime leading to incarceration. 2 is larceny, 3 is drug-related crime, 4 is driving-related crime, and 1 is any other crime.
+*    violator: 1 if the parolee violated the parole, and 0 if the parolee completed the parole without violation.
+
+## Summary
+
+```{r summary}
+str(parole)
+```
+
+```{r violated}
+sum(parole$violator)
+```
+
+```{r}
+# convert unordered factors with three or more levels into factors
+
+parole$state <- as.factor(parole$state)
+parole$crime <- as.factor(parole$crime)
+
+summary(parole)
+```
+
+```{r traintest}
+# create training and test sets
+
+set.seed(144) # fix the random number generator
+
+library(caTools) # provides splitting tools
+
+split = sample.split(parole$violator, SplitRatio = 0.7) # ensure balance of violators in sets
+train = subset(parole, split == TRUE)
+test = subset(parole, split == FALSE)
+
+paste('Number in training set:', nrow(train))
+paste('Number in test set:', nrow(test))
+
+```
+
+```{r model}
+
+model <- glm(violator ~ ., data = train, family = 'binomial') # 'binomial' = logistic regression
+summary(model)
+
+paste('Co-efficient of multiple.crimes =', model$coefficients['multiple.offenses'][[1]])
+paste('e^coefficient of multiple.crimes =', exp(model$coefficients['multiple.offenses'][[1]]))
+
+```
+
+Our model predicts that a parolee who committed multiple offences has `r signif(exp(model$coefficients['multiple.offenses'][[1]]), digits = 3)` times higher odds of being a violator than a parolee who did not commit multiple offenses but is otherwise identical.
+
+## Example
+
+Consider a parolee who is male, of white race, aged 50 years at prison release, from the state of Maryland, served 3 months, had a maximum sentence of 12 months, did not commit multiple offenses, and committed a larceny. 
+
+According to the model, what are the odds this individual is a violator?
+
+```{r}
+
+logit <- model$coefficients['(Intercept)'][[1]] + model$coefficients['male'][[1]] + model$coefficients['race'][[1]] * 1 +
+  model$coefficients['age'][[1]] * 50 + model$coefficients['time.served'][[1]] * 3 +
+  model$coefficients['max.sentence'][[1]] * 12 + model$coefficients['crime2'][[1]]
+
+paste('Logit :', logit)
+paste('Odds  :', exp(logit))
+paste('P(y=1):', 1/(1+exp(-logit)))
+
+```
+
+## Predictions for test set
+
+```{r}
+
+testprediction <- predict(model, newdata = test, type = 'response')
+hist(testprediction)
+paste('Maximum predicted probability of a violation', max(testprediction))
+
+```
+
+## Accuracy of prediction on test set
+
+Threshold 0.5
+
+Note that '0' and '1' on the left-side of the table indicate whether the
+parolee violated the parole ('1') or not ('0').
+
+```{r}
+
+testpredicttable <- table(test$violator, testprediction >= 0.5)
+testpredicttable
+
+paste('Sensitivity : ', testpredicttable['1', 'TRUE']/sum(testpredicttable['1',]))
+paste('Specificity : ', testpredicttable['0', 'FALSE']/sum(testpredicttable['0',]))
+paste('Accuracy    : ', (testpredicttable['1', 'TRUE'] + testpredicttable['0', 'FALSE'])/sum(testpredicttable[,]))
+paste("Accuracy of 'simple' model which predicts that every parolee is a non-violator :", sum(train$violator == FALSE)/length(train$violator))
+```
+
+The model at cutoff 0.5 has 12 false positives and 11 false negatives, while the baseline model has 0 false positives and 23 false negatives. Because a parole board is likely to assign more cost to a false negative, the model at cutoff 0.5 is likely of value to the board.
+
+The parole board would likely benefit from decreasing the logistic regression cutoffs, which decreases the false negative rate while increasing the false positive rate.
+
+## Receiver Operater Characteristic (ROC) Curve 
+
+The ROC area under cuve is the probability the model can correctly differentiate between a randomly selected parole violator and a randomly selected parole non-violator.
+
+The AUC deals with differentiating between a randomly selected positive and negative example. It is independent of the regression cutoff selected.
+
+```{r message = FALSE}
+library(ROCR)
+```
+
+```{r}
+pred_ROCR <- prediction(testprediction, test$violator)
+auc_ROCR <- performance(pred_ROCR, measure = 'auc')
+plot(performance(pred_ROCR, measure = 'tpr', x.measure = 'fpr'), colorize = TRUE)
+paste('Area under Curve :', auc_ROCR@y.values[[1]])
+
+```
+
+The dataset contains all individuals released from parole in 2004, either due to completing their parole term or violating the terms of their parole. However, it does not contain parolees who neither violated their parole nor completed their term in 2004, causing non-violators to be underrepresented. This is called "selection bias" or "selecting on the dependent variable," because only a subset of all relevant parolees were included in our analysis, based on our dependent variable in this analysis (parole violation).
+
+A prospective dataset that tracks a cohort of parolees and observes the true outcome of each is more desirable. Unfortunately, such datasets are often more challenging to obtain (for instance, if a parolee had a 10-year term, it might require tracking that individual for 10 years before building the model). Such a prospective analysis would not be possible using the 2004 National Corrections Reporting Program dataset. 

@@ -1,0 +1,239 @@
+---
+title: "Predicting Loan Repayment"
+author: "David Fong"
+date: "3/9/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+*(for MITx Analytics Edge)*
+
+In the lending industry, investors provide loans to borrowers in exchange for the promise of repayment with interest. If the borrower repays the loan, then the lender profits from the interest. However, if the borrower is unable to repay the loan, then the lender loses money. Therefore, lenders face the problem of predicting the risk of a borrower being unable to repay a loan.
+
+To address this problem, we will use publicly available data from LendingClub.com, a website that connects borrowers and investors over the Internet. This dataset represents 9,578 3-year loans that were funded through the LendingClub.com platform between May 2007 and February 2010. The binary dependent variable not.fully.paid indicates that the loan was not paid back in full (the borrower either defaulted or the loan was "charged off," meaning the borrower was deemed unlikely to ever pay it back).
+
+To predict this dependent variable, we will use the following independent variables available to the investor when deciding whether to fund a loan:
+
+*    **credit.policy**: 1 if the customer meets the credit underwriting criteria of LendingClub.com, and 0 otherwise.
+*    **purpose**: The purpose of the loan (takes values "credit_card", "debt_consolidation", "educational", "major_purchase", "small_business", and "all_other").
+*    **int.rate**: The interest rate of the loan, as a proportion (a rate of 11% would be stored as 0.11). Borrowers judged by LendingClub.com to be more risky are assigned higher interest rates.
+*    **installment**: The monthly installments ($) owed by the borrower if the loan is funded.
+*    **log.annual.inc**: The natural log of the self-reported annual income of the borrower.
+*    **dti**: The debt-to-income ratio of the borrower (amount of debt divided by annual income).
+*    **fico**: The FICO credit score of the borrower.
+*    **days.with.cr.line**: The number of days the borrower has had a credit line.
+*    **revol.bal**: The borrower's revolving balance (amount unpaid at the end of the credit card billing cycle).
+*    **revol.util**: The borrower's revolving line utilization rate (the amount of the credit line used relative to total credit available).
+*    **inq.last.6mths**: The borrower's number of inquiries by creditors in the last 6 months.
+*    **delinq.2yrs**: The number of times the borrower had been 30+ days past due on a payment in the past 2 years.
+*    **pub.rec**: The borrower's number of derogatory public records (bankruptcy filings, tax liens, or judgments).
+
+```{r data}
+loans <- read.csv('loans.csv')
+str(loans)
+```
+
+```{r}
+summary(loans)
+```
+## Loans not paid in full
+
+```{r}
+paste('Loans not paid in full :', signif(sum(loans$not.fully.paid)/length(loans$not.fully.paid)))
+```
+
+## Missing values
+
+```{r}
+no_missing_values <- !is.na(loans$log.annual.inc) & !is.na(loans$days.with.cr.line) & !is.na(loans$revol.util) & !is.na(loans$inq.last.6mths) & !is.na(loans$delinq.2yrs) & !is.na(loans$pub.rec)
+
+loans_no_missing_values <- subset(loans, no_missing_values)
+loans_missing_values <- subset(loans, no_missing_values == FALSE)
+
+paste('Number of loans with no missing values :', nrow(loans_no_missing_values))
+paste('Number of loans with a missing values :', nrow(loans_missing_values))
+
+paste('Loans not paid in full if no missing value :', signif(sum(loans_no_missing_values$not.fully.paid)/length(loans_no_missing_values$not.fully.paid)))
+paste('Loans not paid in full if a missing value :', signif(sum(loans_missing_values$not.fully.paid)/length(loans_missing_values$not.fully.paid)))
+```
+
+## Imputing missing values
+
+```{r message = FALSE}
+library(mice)
+```
+```{r message = FALSE}
+set.seed(144)
+
+vars.for.imputation = setdiff(names(loans), "not.fully.paid")
+
+imputed = complete(mice(loans[vars.for.imputation]))
+# predict missing variable values using the available independent variables for each observation
+
+loans[vars.for.imputation] = imputed
+
+loans_imputed <- read.csv('loans_imputed.csv')
+# (imputed using another computer with potentially different settings)
+```
+
+## Create training and test sets
+
+```{r}
+
+set.seed(144) # fix the random number generator
+
+library(caTools) # provides splitting tools
+
+split = sample.split(loans_imputed$not.fully.paid, SplitRatio = 0.7) # ensure balance of violators in sets
+train = subset(loans, split == TRUE)
+test = subset(loans, split == FALSE)
+
+train_imputed <- subset(loans_imputed, split == TRUE)
+test_imputed <- subset(loans_imputed, split == FALSE)
+
+```
+
+## Create model
+
+```{r}
+model_x <- glm(not.fully.paid ~ ., data = train, family = 'binomial')
+summary(model_x)
+```
+```{r}
+model <- glm(not.fully.paid ~ ., data = train_imputed, family = 'binomial')
+summary(model)
+```
+
+## Prediction models - Logit examples
+
+Consider two loan applications, which are identical other than the fact that the borrower in Application A has FICO credit score 700 while the borrower in Application B has FICO credit score 710.
+
+Let Logit(A) be the log odds of loan A not being paid back in full, according to our logistic regression model, and define Logit(B) similarly for loan B. What is the value of Logit(A) - Logit(B)?
+
+```{r}
+logit <- model$coefficients['fico'][[1]]*(700-710)
+
+paste("Value of Logit(A)-Logit(B) =", signif(logit))
+paste("Odds ratio of A not being paid back, compared to B =", signif(exp(logit)))
+```
+
+## Prediction of test set
+
+Where threshold = 0.5
+
+```{r}
+
+predicted.risk <- predict(model, newdata = test_imputed, type = 'response')
+test_imputed$predicted.risk <- predicted.risk
+
+accuracy.table <- table(test_imputed$not.fully.paid, predicted.risk >= 0.5)
+
+accuracy.table
+
+paste('Accuracy of logistic regression model :',
+      signif((accuracy.table['0','FALSE'] + accuracy.table['1','TRUE']) / sum(accuracy.table[,])))
+paste('Accuracy of baseline model :', 
+      signif(max(sum(test$not.fully.paid == TRUE), sum(test$not.fully.paid == FALSE))/nrow(test)))
+```
+
+## Receiver Operator Characteristic
+
+```{r message = FALSE}
+library(ROCR)
+```
+
+```{r}
+pred_ROCR <- prediction(predicted.risk, test$not.fully.paid)
+auc_ROCR <- performance(pred_ROCR, measure = 'auc')
+plot(performance(pred_ROCR, measure = 'tpr', x.measure = 'fpr'), colorize = TRUE,
+     print.cutoffs.at = seq(0, 1, 0.1), text.adj = c(-0.2, 1.7))
+paste('Area under Curve :', signif(auc_ROCR@y.values[[1]]))
+```
+
+## 'Smart Baseline'
+
+We built a logistic regression model that has an AUC significantly higher than the AUC of 0.5 that would be obtained by randomly ordering observations.
+
+However, LendingClub.com assigns the interest rate to a loan based on their estimate of that loan's risk. This variable, **int.rate**, is an independent variable in our dataset. In this part, we will investigate using the loan's interest rate as a "smart baseline" to order the loans according to risk.
+
+A bivariate logistic regression model (aka a logistic regression model with a single independent variable) that predicts the dependent variable **not.fully.paid** using only the variable **int.rate**.
+
+```{r}
+baseline.model <- glm(not.fully.paid ~ int.rate, data = train_imputed, family = 'binomial')
+summary(baseline.model)
+```
+
+The variable **int.rate** is highly significant in the bivariate model, but it is not significant at the 0.05 level in the model trained with all the independent variables. The most likely explanation for this difference is that **int.rate** is correlated with other risk-related variables, and therefore does not incrementally improve the model when those other variables are included.
+
+## Smart baseline predictions
+
+```{r}
+baseline.model.test.predictions <- predict(baseline.model, newdata = test_imputed, type = 'response')
+
+paste('Highest predicted probability of loan not being paid in full on testing set', signif(max(baseline.model.test.predictions)))
+paste('With logistic regression cutoff of 0.5, the number of loans not being paid in full on the testing set :', sum(baseline.model.test.predictions >= 0.5))
+```
+
+## Receiver operator characteristics of 'smart baseline' model
+
+```{r message = FALSE}
+library(ROCR)
+```
+
+```{r}
+pred_ROCR <- prediction(baseline.model.test.predictions, test_imputed$not.fully.paid)
+auc_ROCR <- performance(pred_ROCR, measure = 'auc')
+plot(performance(pred_ROCR, measure = 'tpr', x.measure = 'fpr'), colorize = TRUE,
+     print.cutoffs.at = seq(0, 1, 0.1), text.adj = c(-0.2, 1.7))
+paste('Area under Curve :', signif(auc_ROCR@y.values[[1]]))
+
+```
+
+## Estimating profit
+
+Assume a $1 investment (aka c=1). To create the variable, we first assign to the profit for a fully paid loan, exp(rt)-1, to every observation, and we then replace this value with -1 in the cases where the loan was not paid in full. All the loans in our dataset are 3-year loans, meaning t=3 in our calculations.
+
+```{r}
+test_imputed$profit <- exp(test_imputed$int.rate*3)-1
+test_imputed$profit[test_imputed$not.fully.paid == 1] = -1
+
+paste('Maximum profit of a $10 investment in any loan in the testing set:',
+      signif(max(test_imputed$profit)*10))
+
+```
+
+## Investment strategy based on risk
+
+Investors seek loans that balance reward with risk, in that they simultaneously have high interest rates and a low risk of not being paid back.
+
+We will analyze an investment strategy in which the investor only purchases loans with a high interest rate (a rate of at least 15%), but amongst these loans selects the ones with the lowest predicted risk of not being paid back in full. We will model an investor who invests $1 in each of the most promising 100 loans.
+
+```{r}
+highinterest <- subset(test_imputed, test_imputed$int.rate >= 0.15)
+
+paste('Average profit of a $1 investment in one of these high-interest loans :',
+      signif(mean(highinterest$profit)))
+paste('Proportion of high-interest loans not paid back in full:',
+      signif(mean(highinterest$not.fully.paid)))
+```
+
+We will determine the 100th smallest predicted probability of not paying in full by sorting the predicted risks in increasing order and selecting the 100th element of this sorted list.
+
+We then build a data frame called **selectedloans** consisting of the 100 lowest risk high-interest loans.
+
+```{r}
+cutoff <- sort(highinterest$predicted.risk, decreasing=FALSE)[100]
+selectedloans <- subset(highinterest, highinterest$predicted.risk <= cutoff)
+
+paste("Profit of the investor who invested $1 each of these 100 'low-risk' high-interest loans :",
+      signif(sum(selectedloans$profit)))
+paste("Number of these 100 'low-risk' high-interest loans not paid back in full:",
+      sum(selectedloans$not.fully.paid))
+```
+
+We have now seen how analytics can be used to select a subset of the high-interest loans that were paid back at only a slightly lower rate than average, resulting in a significant increase in the profit from our investor's $100 investment. Although the logistic regression models developed in this problem did not have large AUC values, we see that they still provided the edge needed to improve the profitability of an investment portfolio.
+
+We conclude with a note of warning. Throughout this analysis we assume that the loans we invest in will perform in the same way as the loans we used to train our model, even though our training set covers a relatively short period of time. If there is an economic shock like a large financial downturn, default rates might be significantly higher than those observed in the training set and we might end up losing money instead of profiting. Investors must pay careful attention to such risk when making investment decisions.

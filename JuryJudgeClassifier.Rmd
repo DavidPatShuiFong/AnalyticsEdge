@@ -1,0 +1,164 @@
+---
+title: "Jury, Judge and Classifier"
+author: "David Fong"
+date: "3/14/2019"
+output: html_document
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(caTools)
+library(rpart)
+library(rpart.plot) # provides plotting function 'prp'
+
+```
+```{r message = FALSE}
+library(ROCR)
+library(randomForest)
+library(tidyverse)
+library(caret)
+library(e1071)
+```
+
+## Prediction of Supreme Court decisions using Classification and Regression Trees (CART)
+
+```{r}
+stevens <- read.csv("stevens.csv")
+```
+
+## Show data summary
+
+```{r pressure, echo=FALSE}
+str(stevens)
+```
+
+## Generating training and test sets
+
+```{r}
+set.seed(3000)
+
+spl <- sample.split(stevens$Reverse, SplitRatio = 0.7) 
+# 0.7 in training set, based on outcome variable $Reverse
+
+Train <-subset(stevens, spl == TRUE)
+Test <- subset(stevens, spl == FALSE)
+```
+
+## Generate CART model
+
+```{r fig.width = 12, fig.height = 8}
+StevensTree <- rpart(Reverse ~ Circuit + Issue + Petitioner + Respondent + LowerCourt + Unconst,
+                     data = Train, method = "class", minbucket = 25)
+# minbucket is minimum size of bucket, to prevent over-fitting
+
+prp(StevensTree)
+```
+
+## Prediction
+
+```{r}
+PredictCart <- predict(StevensTree, newdata = Test, type = "class") 
+# type = "class" for majrity class predictions i.e. threshold 0.5
+
+confusion_matrix <- table(Test$Reverse, PredictCart)
+
+accuracy <- (confusion_matrix['0','0']+confusion_matrix['1','1'])/sum(confusion_matrix[])
+
+confusion_matrix
+
+paste("Accuracy :", accuracy)
+```
+
+## ROC curve. Model performance
+
+```{r}
+PredictROC <- predict(StevensTree, newdata = Test)
+
+head(PredictROC)
+```
+
+First column is probability of outcome '0'. Second column is probability of outcome '1'
+
+```{r}
+pred <- prediction(PredictROC[,2], Test$Reverse)
+perf <- performance(pred, "tpr", "fpr")
+plot(perf)
+
+paste("AUC : ", as.numeric(performance(pred, "auc")@y.values))
+```
+
+
+### Different minimum bucket size (=5)
+
+```{r}
+StevensTree5 <- rpart(Reverse ~ Circuit + Issue + Petitioner + Respondent + LowerCourt + Unconst,
+                     data = Train, method = "class", minbucket = 5)
+# minbucket is minimum size of bucket, to prevent over-fitting
+
+prp(StevensTree5)
+```
+
+### Different minimum bucket size (=100)
+
+```{r}
+StevensTree100 <- rpart(Reverse ~ Circuit + Issue + Petitioner + Respondent + LowerCourt + Unconst,
+                     data = Train, method = "class", minbucket = 100)
+# minbucket is minimum size of bucket, to prevent over-fitting
+
+prp(StevensTree100)
+```
+
+
+## Using 'Random Forest'
+
+```{r}
+
+set.seed(200)
+StevensForest <- randomForest(as.factor(Reverse) ~ Circuit + Issue + Petitioner + Respondent + LowerCourt + Unconst,
+                              data = Train, nodesize = 25, ntree = 200)
+# nodesize is same as 'minbucket' in CART
+# ntree is number of trees to build
+# note that outcome variable is 'as.factor', this is a classification problem (as opposed to a regression)
+
+PredictForest <- predict(StevensForest, newdata = (Test %>% mutate(Reverse = as.factor(Reverse))))
+
+confusion_forest <- table(Test$Reverse, PredictForest)
+
+confusion_forest
+
+paste("Accuracy :", (confusion_forest['0','0']+confusion_forest['1','1'])/sum(confusion_forest[]))
+```
+
+## Cross-validation
+
+```{r}
+numFolds <- trainControl(method = "cv", number = 10)
+cpGrid <- expand.grid(.cp = seq(0.01, 0.5, 0.01))
+
+train(as.factor(Reverse) ~ Circuit + Issue + Petitioner + Respondent + LowerCourt + Unconst,
+      data = Train, method = "rpart", trControl = numFolds, tuneGrid = cpGrid)
+
+```
+
+Maximum accuracy when cp = 0.18
+
+```{r}
+StevensTreeCV <- rpart(as.factor(Reverse) ~ Circuit + Issue + Petitioner + Respondent + LowerCourt + Unconst,
+                       data = Train, method = 'class', cp = 0.18)
+
+PredictCV <- predict(StevensTreeCV, newdata = (Test %>% mutate(Reverse = as.factor(Reverse))), type = "class")
+
+prp(StevensTreeCV)
+
+```
+
+```{r}
+confusion_cv <- table(Test$Reverse, PredictCV)
+
+confusion_cv
+
+paste("Accuracy :", (confusion_cv['0','0']+confusion_cv['1','1'])/sum(confusion_cv[]))
+```
+
+A single-split model gives better accuracy than a model with more splits!
