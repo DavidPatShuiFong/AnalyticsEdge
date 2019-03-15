@@ -1,5 +1,5 @@
 ---
-title: "ParoleViolationPrediction"
+title: "Parole Violation Prediction"
 author: "David Fong"
 date: "3/9/2019"
 output: html_document
@@ -8,6 +8,8 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
+
+*MITx Analytics Edge assignment*
 
 ## Predicting parole violators
 
@@ -147,7 +149,7 @@ library(ROCR)
 ```{r}
 pred_ROCR <- prediction(testprediction, test$violator)
 auc_ROCR <- performance(pred_ROCR, measure = 'auc')
-plot(performance(pred_ROCR, measure = 'tpr', x.measure = 'fpr'), colorize = TRUE)
+plot(performance(pred_ROCR, measure = 'tpr', x.measure = 'fpr'), colorize = TRUE,  print.cutoffs.at = seq(0, 1, 0.1), text.adj = c(-0.2, 1.7))
 paste('Area under Curve :', auc_ROCR@y.values[[1]])
 
 ```

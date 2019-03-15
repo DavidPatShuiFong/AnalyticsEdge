@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-*(for MITx Analytics Edge)*
+*(assignment for MITx Analytics Edge)*
 
 In the lending industry, investors provide loans to borrowers in exchange for the promise of repayment with interest. If the borrower repays the loan, then the lender profits from the interest. However, if the borrower is unable to repay the loan, then the lender loses money. Therefore, lenders face the problem of predicting the risk of a borrower being unable to repay a loan.
 
@@ -178,10 +178,6 @@ paste('With logistic regression cutoff of 0.5, the number of loans not being pai
 ```
 
 ## Receiver operator characteristics of 'smart baseline' model
-
-```{r message = FALSE}
-library(ROCR)
-```
 
 ```{r}
 pred_ROCR <- prediction(baseline.model.test.predictions, test_imputed$not.fully.paid)

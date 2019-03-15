@@ -9,6 +9,8 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+*MITX Analytics Edge exercise*
+
 ## Claims Data
 
 Sample of patients in the Medicare program (USA), which provides health insurance to Americans aged 65 years and older, as well as some younger people with certain medical conditions.
@@ -50,7 +52,7 @@ by D2Hawkeye.
 
 table(claims$bucket2009)/nrow(claims)
 
-hist(claims$bucket2009)
+barplot(table(claims$bucket2009))
 
 ```
 
@@ -58,7 +60,7 @@ hist(claims$bucket2009)
 
 ```{r}
 set.seed(88)
-spl = sample.split(claims$bucket2009, SplitRatio = 0.6)
+spl = sample.split(claims$bucket2009, SplitRatio = 0.6) # use library caTools
 claimstrain <- subset(claims, spl == TRUE)
 claimstest <- subset(claims, spl == FALSE)
 ```
@@ -82,7 +84,10 @@ baseline_table <- table(claimstest$bucket2009, claimstest$bucket2008)
 
 baseline_table
 
-paste('Accuracy:', (baseline_table['1','1'] + baseline_table['2','2'] + baseline_table['3','3'] + baseline_table['4','4'] + baseline_table['5','5'])/nrow(claimstest))
+# Accuracy is the number of correct predictions.
+# The correct predictions are where 'row' matches 'column'
+# i.e. the entries in the diagonal
+paste('Accuracy:', (sum(diag(baseline_table)))/nrow(claimstest))
 ```
 
 ## Penalty matrix (for Hawkeye model)
@@ -96,6 +101,9 @@ PenaltyMatrix
 Actual outcomes on left, predicted outcomes are on top.
 Biggest penalty when a low cost bucket is predicted, but the actual outcome is a high cost bucket.
 There is a penalty for predicting a high cost bucket, when the actually is a low cost bucket, but penalty is not so bad.
+
+
+### Penalty error for baseline model
 
 ```{r}
 as.matrix(baseline_table)*PenaltyMatrix
@@ -124,7 +132,8 @@ paste('Penalty error:', sum(baseline2_penalty)/nrow(claimstest))
 ## Classification and Regression Tree (CART) prediction
 
 ```{r}
-ClaimsTree <- rpart(bucket2009 ~ age + arthritis + alzheimers + cancer + copd + depression + diabetes + heart.failure + ihd + kidney + osteoporosis + stroke + bucket2008 + reimbursement2008, data = claimstrain, method = "class", cp = 0.00005)
+ClaimsTree <- rpart(bucket2009 ~ age + arthritis + alzheimers + cancer + copd + depression + diabetes + heart.failure + ihd + kidney + osteoporosis + stroke + bucket2008 + reimbursement2008, 
+                    data = claimstrain, method = "class", cp = 0.00005)
 ```
 
 cp value was selected through cross-validation on the training set.
@@ -137,7 +146,7 @@ PredictTest <- predict(ClaimsTree, newdata = claimstest, type = "class")
 predict_table <- table(claimstest$bucket2009, PredictTest)
 
 predict_table
-paste('Accuracy:', (predict_table['1','1'] + predict_table['2','2'] + predict_table['3','3'] + predict_table['4','4'] + predict_table['5','5'])/nrow(claimstest))
+paste('Accuracy:', (sum(diag(predict_table)))/nrow(claimstest))
 
 ```
 
@@ -153,7 +162,9 @@ This is because CART assigns a value of '1' to all errors, and did not weight th
 ## CART model with custom loss matrix
 
 ```{r}
-ClaimsPenaltyTree <- rpart(bucket2009 ~ age + arthritis + alzheimers + cancer + copd + depression + diabetes + heart.failure + ihd + kidney + osteoporosis + stroke + bucket2008 + reimbursement2008, data = claimstrain, method = "class", cp = 0.00005, parms = list(loss = PenaltyMatrix))
+ClaimsPenaltyTree <- rpart(bucket2009 ~ age + arthritis + alzheimers + cancer + copd + depression + diabetes + heart.failure + ihd + kidney + osteoporosis + stroke + bucket2008 + reimbursement2008,
+                           data = claimstrain, method = "class", cp = 0.00005,
+                           parms = list(loss = PenaltyMatrix)) # define penalty matrix
 ```
 
 ```{r}
@@ -165,8 +176,7 @@ PredictPenaltyTest <- predict(ClaimsPenaltyTree, newdata = claimstest, type = "c
 predictpenalty_table <- table(claimstest$bucket2009, PredictPenaltyTest)
 
 predictpenalty_table
-paste('Accuracy:', (predictpenalty_table['1','1'] + predictpenalty_table['2','2'] + predictpenalty_table['3','3'] + predictpenalty_table['4','4'] + predictpenalty_table['5','5'])/nrow(claimstest))
-
+paste('Accuracy:', (sum(diag(predictpenalty_table)))/nrow(claimstest))
 
 as.matrix(predictpenalty_table)*PenaltyMatrix
 
