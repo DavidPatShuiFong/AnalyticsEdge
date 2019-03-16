@@ -1,0 +1,217 @@
+---
+title: "Understanding Why People Vote"
+author: "David Fong"
+date: "16/03/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message = FALSE}
+library(tidyverse)
+library(ROCR) # receiver operator characteristics
+library(rpart) # CART model
+library(rpart.plot)
+```
+
+*Assignment for MITx The Analytics Edge*
+
+## understanding why people vote
+
+In August 2006 three researchers (Alan Gerber and Donald Green of Yale University, and Christopher Larimer of the University of Northern Iowa) carried out a large scale field experiment in Michigan, USA to test the hypothesis that one of the reasons people vote is social, or extrinsic, pressure. To quote the first paragraph of their [2008 research paper](https://isps.yale.edu/sites/default/files/publication/2012/12/ISPS08-001.pdf):
+
+> Among the most striking features of a democratic political system is the participation of millions of voters in elections. Why do large numbers of people vote, despite the fact that ... "the casting of a single vote is of no significance where there is a multitude of electors"? One hypothesis is adherence to social norms. Voting is widely regarded as a citizen duty, and citizens worry that others will think less of them if they fail to participate in elections. Voters' sense of civic duty has long been a leading explanation of vote turnout...
+
+In this homework problem we will use both logistic regression and classification trees to analyze the data they collected.
+
+## The data
+
+The researchers grouped about 344,000 voters into different groups randomly - about 191,000 voters were a "control" group, and the rest were categorized into one of four "treatment" groups. These five groups correspond to five binary variables in the dataset.
+
+1.    "Civic Duty" (variable **civicduty**) group members were sent a letter that simply said "DO YOUR CIVIC DUTY - VOTE!"
+2.    "Hawthorne Effect" (variable hawthorne) group members were sent a letter that had the "Civic Duty" message plus the additional message "YOU ARE BEING STUDIED" and they were informed that their voting behavior would be examined by means of public records.
+3.    "Self" (variable **self**) group members received the "Civic Duty" message as well as the recent voting record of everyone in that household and a message stating that another message would be sent after the election with updated records.
+4.    "Neighbors" (variable **neighbors**) group members were given the same message as that for the "Self" group, except the message not only had the household voting records but also that of neighbors - maximizing social pressure.
+5.    "Control" (variable **control**) group members were not sent anything, and represented the typical voting situation.
+
+Additional variables include **sex** (0 for male, 1 for female), **yob** (year of birth), and the dependent variable **voting** (1 if they voted, 0 otherwise).
+
+
+```{r}
+data <- read.csv("gerber.csv")
+str(data)
+```
+
+
+```{r}
+summary(data)
+```
+
+Proportion of people in this dataset who voted: `r mean(data$voting)`
+
+## Voting and the different treatment groups
+
+Is there anyone in the dataset with more than one treatment?
+
+```{r}
+data %>%
+  mutate(two_treatments = (hawthorne + civicduty + neighbors + self) > 1) %>%
+  select(c("two_treatments")) %>%
+  summary()
+
+```
+
+No, there isn't anyone with more than one treatment.
+
+First table shows number who voted (1) and didn't vote (0) in each treatment group.
+
+```{r}
+treatment_groups <- data %>%
+  mutate(treatment = case_when(hawthorne == TRUE ~ c("hawthorne"),
+                               civicduty == TRUE ~ c("civicduty"),
+                               neighbors == TRUE ~ c("neighbors"),
+                               self == TRUE ~ c("self"),
+                               TRUE ~ c("Control"))) %>%
+  select(c("voting", "treatment"))
+
+table(treatment_groups$treatment, treatment_groups$voting)
+
+treatment_groups %>%
+  group_by(treatment) %>%
+  summarise(avg = mean(voting))
+
+```
+
+## Logistic regression model
+
+```{r}
+logmodel <- glm(voting ~ civicduty + hawthorne + neighbors + self,
+                data = data, family = "binomial")
+# note that this model uses the entire dataset
+summary(logmodel)
+```
+
+```{r}
+cat("Accuracy of logistic regression model of predicting\nthe voting intention (with threshold 0.3):\n",
+      sum((predict(logmodel, type = "response")>.3)==data$voting)/nrow(data))
+
+cat("\nAccuracy of logistic regression model of predicting\nthe voting intention (with threshold 0.5):\n",
+      sum((predict(logmodel, type = "response")>.5)==data$voting)/nrow(data))
+
+```
+
+Accuracy of 'baseline' model (the proportion of people who did not vote): `r 1-mean(data$voting)`.
+It appears that the model is poorly predictive with the two thresholds *0.3* and *0.5*.
+
+```{r}
+predicted_vote <- predict(logmodel, type = "response")
+
+pred_ROCR <- prediction(predicted_vote, data$voting)
+auc_ROCR <- performance(pred_ROCR, measure = 'auc')
+plot(performance(pred_ROCR, measure = 'tpr', x.measure = 'fpr'), colorize = TRUE,
+     print.cutoffs.at = seq(0, 1, 0.1), text.adj = c(-0.2, 1.7))
+```
+```{r}
+paste('Area under Curve :', signif(auc_ROCR@y.values[[1]]))
+```
+
+Area under Curve (AUC) barely more than 0.5, this is a poor predictive model for any threshold.
+
+## CART model
+
+We are interested in building a tree to explore the fraction of people who vote, or the probability of voting. We’d like CART to split our groups if they have different probabilities of voting.
+
+If we used method=‘class’, CART would only split if one of the groups had a probability of voting above 50% and the other had a probability of voting less than 50% (since the predicted outcomes would be different). However, with regression trees, CART will split even if both groups have probability less than 50%.
+
+```{r}
+CARTmodel <- rpart(voting ~ civicduty + hawthorne + self + neighbors,
+                  data = data)
+prp(CARTmodel)
+```
+
+There is just one leaf! There are no splits in the tree, because none of the variables make a big enough effect to be split on.
+
+Now set **cp = 0.0** to force the complete tree to be built.
+
+```{r}
+CARTmodel2 <- rpart(voting ~ civicduty + hawthorne + self + neighbors,
+                   data = data, cp=0.0)
+prp(CARTmodel2)
+```
+
+From this tree, it can be seen that 0.31 of "Civic duty" people voted. (The last split is 'Yes' to the left of *civicdut=0*).
+
+The same model, adding **sex** as another factor.
+
+```{r}
+CARTmodel2sex <- rpart(voting ~ civicduty + hawthorne + self + neighbors + sex,
+                      data = data, cp=0.0)
+prp(CARTmodel2sex)
+```
+
+## Interaction terms
+
+```{r}
+CARTmodelControl <- rpart(voting ~ control,
+                          data = data, cp = 0.0)
+prp(CARTmodelControl, digits = 6) # six digits of precision in display
+```
+
+
+
+```{r}
+CARTmodelControlsex <- rpart(voting ~ control + sex,
+                             data = data, cp = 0.0)
+prp(CARTmodelControlsex, digits = 6)
+```
+
+The difference in voting as the result of not being in the control group is about the same for men and women (less than 0.001 absolute difference).
+
+### Logistic regression and interaction terms
+
+```{r}
+logitcontrolsex <- glm(voting ~ control + sex,
+                       data = data, family = "binomial")
+summary(logitcontrolsex)
+```
+
+The coefficient for the "sex" variable is -0.055791. This means that women are less likely to vote, since women have a larger value in the sex variable, and a negative coefficient means that larger values are predictive of 0.
+
+Our logistic regression on the "sex" and "control" variables considers these variables separately, not jointly, and therefore did not do as well as the CART model.
+
+We can quantify this precisely. 
+
+```{r}
+Possibilities = data.frame(sex=c(0,0,1,1),control=c(0,1,0,1))
+predict(logitcontrolsex, newdata=Possibilities, type="response")
+```
+
+The four values in the results correspond to the four possibilities in the order they are stated above ( (Man, Not Control), (Man, Control), (Woman, Not Control), (Woman, Control) ).
+
+For the (Woman, Control) case ot a large difference between the logistic regression model (0.2908065) and the CART model (0.290456), but it is there.
+
+We're going to add a new term to our logistic regression now, that is the combination of the "sex" and "control" variables - so if this new variable is 1, that means the person is a woman AND in the control group.
+
+```{r}
+logmodel2 <-glm(voting ~ sex + control + sex:control, data=data, family="binomial")
+summary(logmodel2)
+```
+
+If a person is a woman and in the control group, the chance that she voted goes down.
+
+(The sex:control coefficient is negative, so that means that a value of 1 in this variable decreases the chance of voting. This variable will have variable 1 if the person is a woman and in the control group.)
+
+```{r}
+predict(logmodel2, newdata=Possibilities, type="response")
+```
+
+The logistic regression model now predicts 0.2904558 for the (Woman, Control) case, so there is now a very small difference (practically zero) between CART and logistic regression.
+
+Trees can capture nonlinear relationships that logistic regression can not, but we can get around this sometimes by using variables that are the combination of two variables.
+
+We should not use all possible interaction terms in a logistic regression model due to overfitting. Even in this simple problem, we have four treatment groups and two values for sex. If we have an interaction term for every treatment variable with sex, we will double the number of variables. In smaller data sets, this could quickly lead to overfitting.
+
+
+
