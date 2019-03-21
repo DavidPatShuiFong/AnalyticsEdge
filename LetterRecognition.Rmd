@@ -1,0 +1,152 @@
+---
+title: "Letter Recognition"
+author: "David Fong"
+date: "20th March 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caTools) # creates training/test sets
+library(rpart)   # CART models
+library(rpart.plot)
+library(randomForest) # randomforest model
+```
+
+*assignment for 'The Analytics Edge' MITx*
+
+## the data
+
+The file letters_ABPR.csv contains 3116 observations, each of which corresponds to a certain image of one of the four letters A, B, P and R. The images came from 20 different fonts, which were then randomly distorted to produce the final images; each such distorted image is represented as a collection of pixels, each of which is "on" or "off". For each such distorted image, we have available certain statistics of the image in terms of these pixels, as well as which of the four letters the image is. This data comes from the [UCI Machine Learning Repository](http://archive.ics.uci.edu/ml/datasets/Letter+Recognition).
+
+```{r}
+letters <- read.csv("letters_ABPR.csv")
+str(letters)
+```
+
+This dataset contains the following 17 variables:
+
+    letter = the letter that the image corresponds to (A, B, P or R)
+    xbox = the horizontal position of where the smallest box covering the letter shape begins.
+    ybox = the vertical position of where the smallest box covering the letter shape begins.
+    width = the width of this smallest box.
+    height = the height of this smallest box.
+    onpix = the total number of "on" pixels in the character image
+    xbar = the mean horizontal position of all of the "on" pixels
+    ybar = the mean vertical position of all of the "on" pixels
+    x2bar = the mean squared horizontal position of all of the "on" pixels in the image
+    y2bar = the mean squared vertical position of all of the "on" pixels in the image
+    xybar = the mean of the product of the horizontal and vertical position of all of the "on" pixels in the image
+    x2ybar = the mean of the product of the squared horizontal position and the vertical position of all of the "on" pixels
+    xy2bar = the mean of the product of the horizontal position and the squared vertical position of all of the "on" pixels
+    xedge = the mean number of edges (the number of times an "off" pixel is followed by an "on" pixel, or the image boundary is hit) as the image is scanned from left to right, along the whole vertical length of the image
+    xedgeycor = the mean of the product of the number of horizontal edges at each vertical position and the vertical position
+    yedge = the mean number of edges as the images is scanned from top to bottom, along the whole horizontal length of the image
+    yedgexcor = the mean of the product of the number of vertical edges at each horizontal position and the horizontal position
+
+
+## Predicting B or not B
+
+
+```{r}
+letters$isB = as.factor(letters$letter == "B")
+
+set.seed(1000)
+split <- sample.split(letters$isB, SplitRatio = 0.5)
+train <- letters[split == TRUE,]
+test <- letters[split == FALSE,]
+
+```
+
+The 'baseline' model is that which predicts the most frequent outcome, which is "not B".
+Proportion of 'not B' in the training set is `r 1-sum(test$isB == TRUE)/nrow(test)`
+
+### Classification and regression tree model
+
+```{r}
+set.seed(1000)
+
+CARTb = rpart(isB ~ . - letter, data=train, method="class")
+prp(CARTb)
+```
+
+```{r}
+predictB <- predict(CARTb, newdata = test, type = "class")
+table(test$isB, predictB)
+```
+
+Rows are the 'actual'. Columns are the prediction.
+
+Accuracy of this CART tree is `r sum(diag(table(test$isB, predictB)))/nrow(test)`
+
+### Random forest model
+
+Now, build a random forest model to predict whether the letter is a B or not (the isB variable) using the training set. You should use all of the other variables as independent variables, except letter (since it helped us define what we are trying to predict!).
+
+```{r}
+set.seed(1000)
+
+bForest <- randomForest(isB ~ . -letter,
+                        data = train)
+
+predictForest <- predict(bForest, newdata = test)
+table(test$isB, predictForest)
+```
+
+Rows are the 'actual'. Columns are the prediction.
+
+Accuracy of this CART tree is `r sum(diag(table(test$isB, predictForest)))/nrow(test)`
+
+Random forests tends to improve on CART in terms of predictive accuracy. Sometimes, this improvement can be quite significant, as it is here.
+
+## Predicting the letters A, B, P, R
+
+To predict whether or not a letter is one of the four letters A, B, P or R. 
+
+```{r}
+letters$letter = as.factor(letters$letter)
+
+set.seed(2000)
+split <- sample.split(letters$letter, SplitRatio = 0.5)
+train <- letters[split == TRUE,]
+test <- letters[split == FALSE,]
+
+summary(letters)
+
+paste("Accuracty of 'baseline' model predicting the most common letter :", 803/nrow(letters))
+```
+
+### CART model
+
+```{r}
+
+CARTletter = rpart(letter ~ . - isB, data=train, method="class")
+prp(CARTletter)
+```
+
+```{r}
+predictletter <- predict(CARTletter, newdata = test, type = "class")
+table(test$letter, predictletter)
+```
+
+Rows are the 'actual'. Columns are the prediction.
+
+Accuracy of this CART tree is `r sum(diag(table(test$letter, predictletter)))/nrow(test)`
+
+### Random forest model
+
+```{r}
+set.seed(1000)
+
+letterForest <- randomForest(letter ~ . -isB,
+                        data = train)
+
+predictForest <- predict(letterForest, newdata = test)
+table(test$letter, predictForest)
+```
+
+Rows are the 'actual'. Columns are the prediction.
+
+Accuracy of this CART tree is `r sum(diag(table(test$letter, predictForest)))/nrow(test)`
+
+Accuracy is significantly higher than the value for CART, highlighting the gain in accuracy that is possible from using random forest models. The second is that while the accuracy of CART decreased significantly as we transitioned from the problem of predicting B/not B (a relatively simple problem) to the problem of predicting the four letters (certainly a harder problem), the accuracy of the random forest model decreased by a tiny amount.

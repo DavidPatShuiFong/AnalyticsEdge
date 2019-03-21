@@ -1,0 +1,216 @@
+---
+title: "Turning Tweets into Knowledge"
+author: "David Fong"
+date: "21st March 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tm)          # dealing with words
+library(SnowballC)
+library(caTools)     # create training and test sets
+library(rpart)       # classification and regression trees
+library(rpart.plot)
+library(randomForest) # randomforest
+```
+*example from MITx The Analytics as Edge*
+
+## the data
+
+from Twitter.
+Tweets about Apple, rated for sentiment.
+
+```{r}
+tweets <- read.csv("tweets.csv", stringsAsFactors = FALSE)
+str(tweets)
+```
+
+## negative sentiments
+
+```{r}
+tweets$negative <- as.factor(tweets$Avg <= -1)
+table(tweets$negative)
+```
+
+## corpus
+
+A corpus is a collection of documents. We'll need to convert our tweets to a corpus for pre-processing.
+
+```{r}
+corpus <- VCorpus(VectorSource(tweets$Tweet))
+corpus
+
+corpus[[1]]$content
+```
+
+## stemming, removing stop words
+
+Stemming or removing stop words can be done with the tm_map function.
+
+```{r}
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus[[1]]$content
+```
+
+```{r}
+corpus <- tm_map(corpus, removePunctuation)
+corpus[[1]]$content
+```
+
+### stop words in tm
+
+```{r}
+stopwords("english")[1:10]
+```
+
+Remove 'Apple' (present in all these tweets about Apple) and all English stopwords.
+
+```{r}
+corpus <- tm_map(corpus, removeWords, c("apple", stopwords("english")))
+corpus[[1]]$content
+```
+
+### stem the words
+
+```{r}
+corpus <- tm_map(corpus, stemDocument)
+corpus[[1]]$content
+```
+
+## bag of words in R
+
+The tm package provides a function called
+DocumentTermMatrix that generates a matrix where
+the rows correspond to documents, in our case tweets,
+and the columns correspond to words in those tweets.
+
+```{r}
+frequencies <- DocumentTermMatrix(corpus)
+frequencies
+```
+
+```{r}
+inspect(frequencies[1000:1005, 505:515])
+
+# documents from 1000 to 1005
+# words from 505 to 515
+```
+
+"cheer" appears in tweet 1005. "cheap" doesn't appear in any of these tweets.
+
+This data is what we call sparse. There are many zeros in our matrix.
+
+### dealing with sparsity
+
+What are the most popular (frequent) terms?
+
+```{r}
+findFreqTerms(frequencies, lowfreq = 100)
+# minimum number of times a term must appear to be displayed is one hundred
+```
+
+```{r}
+findFreqTerms(frequencies, lowfreq = 20)
+# minimum number of times a term must appear to be displayed is twenty
+```
+
+Fifty-six (56) different words appear at least twenty times, out of 3289 words in the matrix.
+Many words are probably pretty useless for our prediction model.
+
+More terms means more independent variables, which results in longer computation time to build our models.
+
+Ratio of independent variables to observations will affect how good the model will generalize.
+
+```{r}
+sparse <- removeSparseTerms(frequencies, 0.995)
+
+# sparsity threshold
+#  if 0.98 - keep terms that appear in 2% or more tweets
+#  if 0.995 - keep terms that appear in 0.5% or more tweets
+
+sparse
+```
+
+```{r}
+tweetsSparse <- as.data.frame(as.matrix(sparse))
+
+colnames(tweetsSparse) <- make.names(colnames(tweetsSparse))
+# some words start with a number, but R struggles with variables names that start with a number
+
+tweetsSparse$negative <- tweets$negative
+```
+
+## create training and test set
+
+```{r}
+set.seed(123)
+split <- sample.split(tweetsSparse$negative, SplitRatio = 0.7)
+trainSparse <- subset(tweetsSparse, split == TRUE)
+testSparse <- subset(tweetsSparse, split == FALSE)
+```
+
+## CART model
+
+```{r}
+tweetCART <- rpart(negative ~ .,
+                   data = trainSparse, method = "class")
+prp(tweetCART)
+```
+
+### make predictions
+
+```{r}
+predictCART <- predict(tweetCART, newdata = testSparse, type = "class")
+confusionmatrix <- table(testSparse$negative, predictCART)
+confusionmatrix
+cat("\nAccuracy", sum(diag(confusionmatrix))/nrow(testSparse))
+```
+
+### baseline model accuracy
+
+where the default is 'non-negative' sentiment
+```{r}
+negativematrix <- table(testSparse$negative)
+cat("\nAccuracy", 300/355)
+```
+
+## random forest model
+
+Takes much longer to build a random forest model, due to the large number of
+independent variables.
+
+```{r}
+set.seed(123)
+tweetRF <- randomForest(negative ~ ., data = trainSparse)
+```
+
+```{r}
+predictRF <- predict(tweetRF, newdata = testSparse)
+confusionmatrix <- table(testSparse$negative, predictRF)
+confusionmatrix
+cat("\nAccuracy", sum(diag(confusionmatrix))/nrow(testSparse))
+```
+
+## logistic regression model
+
+```{r}
+tweetlogit <- glm(negative ~ ., data = trainSparse, family = "binomial")
+summary(tweetlogit)
+```
+
+### prediction
+
+```{r}
+predictlogit = predict(tweetlogit, newdata=testSparse, type="response")
+confusionmatrix <- table(testSparse$negative, predictlogit)
+confusionmatrix
+cat("\nAccuracy", sum(diag(confusionmatrix))/nrow(testSparse))
+
+```
+
+The accuracy is worse than the baseline. The model does really well on the training set - this is an example of over-fitting. The model fits the training set really well, but does not perform well on the test set.
+
+A logistic regression model with a large number of variables is particularly at risk for overfitting.
+
+The warning messages from the 'glm' function has to do with the number of variables, and the fact that the model is overfitting to the training set.
