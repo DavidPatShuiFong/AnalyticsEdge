@@ -1,7 +1,7 @@
 ---
 title: "Detecting Wikipedia vandalism"
 author: "David Fong"
-date: "3/21/2019"
+date: "21st March 2019"
 output: html_document
 ---
 
@@ -33,7 +33,7 @@ library(tm)      # word analytics
 library(caTools) # create train
 library(rpart)   # classification and regression trees (CART)
 library(rpart.plot)
-
+library(SnowballC)
 ```
 
 ## data
@@ -70,7 +70,7 @@ corpusAdded <- tm_map(corpusAdded, removeWords, stopwords("english"))
 corpusAdded <- tm_map(corpusAdded, stemDocument)
 ```
 
-## Document Term Matrix
+### Document Term Matrix
 
 ```{r}
 dtmAdded <- DocumentTermMatrix(corpusAdded)
@@ -116,7 +116,7 @@ wikiWords <-  cbind(wordsAdded, wordsRemoved)
 wikiWords$Vandal <- wiki$Vandal
 ```
 
-## Create training and test datasets
+### Create training and test datasets
 
 ```{r}
 set.seed(123)
