@@ -1,0 +1,264 @@
+---
+title: "Detecting Wikipedia vandalism"
+author: "David Fong"
+date: "3/21/2019"
+output: html_document
+---
+
+*assignment for "The Analytics Edge" MITx*
+
+Wikipedia is a free online encyclopedia that anyone can edit and contribute to. It is available in many languages and is growing all the time. On the English language version of Wikipedia:
+
+    There are currently 4.7 million pages.
+    There have been a total over 760 million edits (also called revisions) over its lifetime.
+    There are approximately 130,000 edits per day.
+
+One of the consequences of being editable by anyone is that some people vandalize pages. This can take the form of removing content, adding promotional or inappropriate content, or more subtle shifts that change the meaning of the article. With this many articles and edits per day it is difficult for humans to detect all instances of vandalism and revert (undo) them. As a result, Wikipedia uses bots - computer programs that automatically revert edits that look like vandalism. In this assignment we will attempt to develop a vandalism detector that uses machine learning to distinguish between a valid edit and vandalism.
+
+The data for this problem is based on the revision history of the page Language. Wikipedia provides a history for each page that consists of the state of the page at each revision. Rather than manually considering each revision, a script was run that checked whether edits stayed or were reverted. If a change was eventually reverted then that revision is marked as vandalism. This may result in some misclassifications, but the script performs well enough for our needs.
+
+As a result of this preprocessing, some common processing tasks have already been done, including lower-casing and punctuation removal. The columns in the dataset are:
+
+    Vandal = 1 if this edit was vandalism, 0 if not.
+    Minor = 1 if the user marked this edit as a "minor edit", 0 if not.
+    Loggedin = 1 if the user made this edit while using a Wikipedia account, 0 if they did not.
+    Added = The unique words added.
+    Removed = The unique words removed.
+
+Notice the repeated use of unique. The data we have available is not the traditional bag of words - rather it is the set of words that were removed or added. For example, if a word was removed multiple times in a revision it will only appear one time in the "Removed" column.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tm)      # word analytics
+library(caTools) # create train
+library(rpart)   # classification and regression trees (CART)
+library(rpart.plot)
+
+```
+
+## data
+
+
+```{r}
+wiki <- read.csv("wiki.csv", stringsAsFactors = FALSE)
+wiki$Vandal <- as.factor(wiki$Vandal)
+
+str(wiki)
+```
+
+## vandalism
+
+```{r}
+sum(wiki$Vandal == 1)
+```
+
+## "Bag of Words"
+
+We will now use the bag of words approach to build a model. We have two columns of textual data, with different meanings. For example, adding rude words has a different meaning to removing rude words. 
+
+### pre-process
+
+The text already is lowercase and stripped of punctuation.
+
+```{r}
+corpusAdded <- VCorpus(VectorSource(wiki$Added))
+corpusAdded
+```
+
+```{r}
+corpusAdded <- tm_map(corpusAdded, removeWords, stopwords("english"))
+corpusAdded <- tm_map(corpusAdded, stemDocument)
+```
+
+## Document Term Matrix
+
+```{r}
+dtmAdded <- DocumentTermMatrix(corpusAdded)
+dtmAdded
+```
+
+Keep only terms that appear in 0.3% or more revisions.
+
+```{r}
+sparseAdded <- removeSparseTerms(dtmAdded, 0.997)
+sparseAdded
+```
+
+Pre-pend column names (words) with letter 'A' for 'added'.
+
+```{r}
+wordsAdded <- as.data.frame(as.matrix(sparseAdded))
+colnames(wordsAdded) <- paste("A", colnames(wordsAdded))
+```
+
+Same things for removed words
+
+```{r}
+corpusRemoved <- VCorpus(VectorSource(wiki$Removed))
+
+corpusRemoved <- tm_map(corpusRemoved, removeWords, stopwords("english"))
+corpusRemoved <- tm_map(corpusRemoved, stemDocument)
+
+dtmRemoved <- DocumentTermMatrix(corpusRemoved)
+sparseRemoved <- removeSparseTerms(dtmRemoved, 0.997)
+
+wordsRemoved <- as.data.frame(as.matrix(sparseRemoved))
+colnames(wordsRemoved) <- paste("R", colnames(wordsRemoved))
+
+sparseRemoved
+
+```
+
+Combine the 'Added' and 'Removed' words dataframes
+
+```{r}
+wikiWords <-  cbind(wordsAdded, wordsRemoved)
+wikiWords$Vandal <- wiki$Vandal
+```
+
+## Create training and test datasets
+
+```{r}
+set.seed(123)
+
+split <- sample.split(wikiWords$Vandal, SplitRatio = 0.7)
+train <- subset(wikiWords, split == TRUE)
+test <- subset(wikiWords, split == FALSE)
+```
+
+```{r}
+table(wikiWords$Vandal)
+cat("\nBaseline accuracy (predict 'not vandalism') :", 2061/nrow(wikiWords))
+```
+
+```{r}
+modelCART <- rpart(Vandal ~ .,
+                   data = train,
+                   method = "class")
+prp(modelCART)
+```
+
+```{r}
+predictCART <- predict(modelCART,
+                       newdata = test,
+                       type = "class")
+confusionCART <- table(test$Vandal, predictCART)
+confusionCART
+cat("\nAccuracy :", sum(diag(confusionCART))/nrow(test))  
+```
+
+There is no reason to think there was anything wrong with the split. CART did not overfit, which you can check by computing the accuracy of the model on the training set. Over-sparsification is plausible but unlikely, since we selected a very high sparsity parameter. The only conclusion left is simply that bag of words didn't work very well in this case.
+
+## Problem-specific knowledge
+
+We weren't able to improve on the baseline using the raw textual information. More specifically, the words themselves were not useful. There are other options though, and in this section we will try two techniques - identifying a key class of words, and counting words.
+
+The key class of words we will use are website addresses. "Website addresses" (also known as URLs - Uniform Resource Locators) are comprised of two main parts. An example would be "http://www.google.com". The first part is the protocol, which is usually "http" (HyperText Transfer Protocol). The second part is the address of the site, e.g. "www.google.com". We have stripped all punctuation so links to websites appear in the data as one word, e.g. "httpwwwgooglecom". We hypothesize that given that a lot of vandalism seems to be adding links to promotional or irrelevant websites, the presence of a web address is a sign of vandalism.
+
+We can search for the presence of a web address in the words added by searching for "http" in the Added column.
+
+```{r}
+wikiWords2 <- wikiWords
+
+wikiWords2$HTTP <- ifelse(grepl("http", wiki$Added, fixed = TRUE), 1, 0)
+cat("\nNumber of revisions which added a link: ", sum(wikiWords2$HTTP))
+```
+
+Create new train and test sets.
+
+```{r}
+wikiTrain2 = subset(wikiWords2, split == TRUE)
+wikiTest2 = subset(wikiWords2, split == FALSE)
+```
+
+Create a new model with CART (Classification and Regression Trees)
+
+```{r}
+modelCART2 <- rpart(Vandal ~ .,
+                   data = wikiTrain2,
+                   method = "class")
+prp(modelCART2)
+```
+
+```{r}
+predictCART2 <- predict(modelCART2,
+                        newdata = wikiTest2,
+                        type = "class")
+confusionCART2 <- table(wikiTest2$Vandal, predictCART2)
+confusionCART2
+cat("\nAccuracy :", sum(diag(confusionCART2))/nrow(wikiTest2))  
+```
+
+### Is the number of words added and removed predictive?
+
+Another possibility is that the number of words added and removed is predictive, perhaps more so than the actual words themselves. We already have a word count available in the form of the document-term matrices (DTMs).
+
+```{r}
+wikiWords2$NumWordsAdded = rowSums(as.matrix(dtmAdded))
+wikiWords2$NumWordsRemoved = rowSums(as.matrix(dtmRemoved))
+
+summary(wikiWords2$NumWordsAdded)
+```
+
+Create new train and test sets.
+
+```{r}
+wikiTrain2 = subset(wikiWords2, split == TRUE)
+wikiTest2 = subset(wikiWords2, split == FALSE)
+```
+
+Create a new model with CART (Classification and Regression Trees)
+
+```{r}
+modelCART2b <- rpart(Vandal ~ .,
+                     data = wikiTrain2,
+                     method = "class")
+prp(modelCART2b)
+```
+
+```{r}
+predictCART2b <- predict(modelCART2b,
+                        newdata = wikiTest2,
+                        type = "class")
+confusionCART2b <- table(wikiTest2$Vandal, predictCART2b)
+confusionCART2b
+cat("\nAccuracy :", sum(diag(confusionCART2b))/nrow(wikiTest2))  
+```
+
+## Using non-textual data
+
+We have two pieces of "metadata" (data about data) that we haven't yet used.
+
+Minor = 1 if the user marked this edit as a "minor edit", 0 if not.
+Loggedin = 1 if the user made this edit while using a Wikipedia account, 0 if they did not.
+
+```{r}
+wikiWords3 <- wikiWords2
+wikiWords3$Minor = wiki$Minor 
+wikiWords3$Loggedin = wiki$Loggedin
+```
+
+Create new train and test sets.
+
+```{r}
+wikiTrain3 = subset(wikiWords3, split == TRUE)
+wikiTest3 = subset(wikiWords3, split == FALSE)
+```
+
+Create a new model with CART (Classification and Regression Trees)
+
+```{r}
+modelCART3 <- rpart(Vandal ~ .,
+                    data = wikiTrain3,
+                    method = "class")
+prp(modelCART3)
+```
+
+```{r}
+predictCART3 <- predict(modelCART3,
+                        newdata = wikiTest3,
+                        type = "class")
+confusionCART3 <- table(wikiTest3$Vandal, predictCART3)
+confusionCART3
+cat("\nAccuracy :", sum(diag(confusionCART3))/nrow(wikiTest3))  
+```
