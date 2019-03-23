@@ -1,0 +1,169 @@
+---
+title: "Automating Reviews in Medicine"
+author: "David Fong"
+date: "23 March 2019"
+output: html_document
+---
+
+*Homework assignment for "The Analytics Edge" MITx*
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tm) # text analytics
+library(caTools) # create training and test datasets
+library(rpart) # Classificaiton and Regression Tree
+library(rpart.plot)
+library(ROCR) # receiver operator characteristic
+```
+
+The medical literature is enormous. Pubmed, a database of medical publications maintained by the U.S. National Library of Medicine, has indexed over 23 million medical publications. Further, the rate of medical publication has increased over time, and now there are nearly 1 million new publications in the field each year, or more than one per minute.
+
+The large size and fast-changing nature of the medical literature has increased the need for reviews, which search databases like Pubmed for papers on a particular topic and then report results from the papers found. While such reviews are often performed manually, with multiple people reviewing each search result, this is tedious and time consuming. In this problem, we will see how text analytics can be used to automate the process of information retrieval.
+
+The dataset consists of the titles (variable title) and abstracts (variable abstract) of papers retrieved in a Pubmed search. Each search result is labeled with whether the paper is a clinical trial testing a drug therapy for cancer (variable trial). These labels were obtained by two people reviewing each search result and accessing the actual paper if necessary, as part of a literature review of clinical trials testing drug therapies for advanced and metastatic breast cancer.
+
+## data
+
+
+```{r cars}
+trials <- read.csv("clinical_trial.csv", stringsAsFactors = FALSE)
+str(trials)
+cat("\n")
+summary(trials)
+```
+
+```{r}
+cat("\nNumber of characters in longest abstract : ", max(nchar(trials$abstract)))
+cat("\nNumber of search results with no abstract : ", sum(nchar(trials$abstract)==0))
+cat("\nTitle of observation with shortest title : ", trials$title[which.min(nchar(trials$title))])
+```
+
+## pre-process titles and abstracts
+
+```{r}
+corpusTitle <- VCorpus(VectorSource(trials$title))
+corpusAbstract <- VCorpus(VectorSource(trials$abstract))
+
+corpusTitle = tm_map(corpusTitle, content_transformer(tolower)) # lower-case
+corpusTitle = tm_map(corpusTitle, removePunctuation)            # remove punctuation
+corpusTitle = tm_map(corpusTitle, removeWords, stopwords("english")) # remove stop words
+corpusTitle = tm_map(corpusTitle, stemDocument)                 # reduce words to 'stems'
+
+corpusAbstract = tm_map(corpusAbstract, content_transformer(tolower)) # lower-case
+corpusAbstract = tm_map(corpusAbstract, removePunctuation)            # remove punctuation
+corpusAbstract = tm_map(corpusAbstract, removeWords, stopwords("english")) # remove stop words
+corpusAbstract = tm_map(corpusAbstract, stemDocument)                 # reduce words to 'stems'
+
+```
+
+## bag of words
+```{r}
+dtmTitle <- as.data.frame(as.matrix(removeSparseTerms(DocumentTermMatrix(corpusTitle), 0.95)))
+dtmAbstract <- as.data.frame(as.matrix(removeSparseTerms(DocumentTermMatrix(corpusAbstract), 0.95)))
+# create document term matrices. remove terms not present in at least 5% of documents
+
+str(dtmTitle)
+str(dtmAbstract)
+```
+
+```{r}
+cat("\nMost frequent word stem across all abstracts :", colnames(dtmAbstract)[which.max(colSums(dtmAbstract))])
+```
+
+## Building model
+
+We want to combine dtmTitle and dtmAbstract into a single data frame to make predictions. However, some of the variables in these data frames have the same names. 
+
+```{r}
+colnames(dtmTitle) <-  paste0("T", colnames(dtmTitle))
+colnames(dtmAbstract) <-  paste0("A", colnames(dtmAbstract))
+# Adding the letter T in front of all the title variable names and adding the letter A in front of all the abstract variable names.
+
+dtm <- cbind(dtmTitle, dtmAbstract)
+# Using cbind(), combine dtmTitle and dtmAbstract into a single data frame called dtm:
+dtm$trial <- trials$trial
+
+paste("Number of columns in 'dtm' datta-frame", ncol(dtm))
+```
+
+### Create training and test datasets
+
+```{r}
+set.seed(144)
+
+split <- sample.split(dtm$trial, SplitRatio = 0.7)
+train <- subset(dtm, split == TRUE)
+test <- subset(dtm, split == FALSE)
+
+summary(train$trial)
+
+cat("\nBaseline accuracty of most common outcome of train$trial : ", 1-mean(train$trial))
+```
+
+### create Classification and Regression Tree (CART) model
+
+```{r}
+trialCART <- rpart(trial ~ . ,
+                   data = train, method = "class")
+prp(trialCART)
+```
+
+### training set predictions for the model
+
+```{r}
+predictCARTtrain <- predict(trialCART)
+cat("\nMaximum predicted probability for any result\nwhen applying model to training set :", max(predictCARTtrain[,2]))
+
+# probability of '1' is in second column of predictCarttrain
+```
+
+Because the CART tree assigns the same predicted probability to each leaf node and there are a small number of leaf nodes compared to data points, we expect exactly the same maximum predicted probability when applying the model to the testing set compared to the training set.
+
+### model accuracy, sensitivity and specificity on training set
+
+```{r}
+predictCARTtrainconfusion <- table(train$trial, predictCARTtrain[,2] >= 0.5)
+predictCARTtrainconfusion
+
+cat("\nAccuracy : ", sum(diag(predictCARTtrainconfusion))/nrow(train))
+cat("\nSensitivity : ", predictCARTtrainconfusion["1","TRUE"]/sum(predictCARTtrainconfusion["1",]))
+cat("\nSpecificity : ", predictCARTtrainconfusion["0","FALSE"]/sum(predictCARTtrainconfusion["0",]))
+```
+
+### evaluating the model on the testing set
+
+```{r}
+predTest =  predict(trialCART,
+                    newdata = test)
+
+predTestconfusion <- table(test$trial, predTest[,2] >= 0.5)
+predTestconfusion
+
+cat("\nAccuracy : ", sum(diag(predTestconfusion))/nrow(test))
+cat("\nSensitivity : ", predTestconfusion["1","TRUE"]/sum(predTestconfusion["1",]))
+cat("\nSpecificity : ", predTestconfusion["0","FALSE"]/sum(predTestconfusion["0",]))
+```
+
+
+```{r}
+predictROCR <- prediction(predTest[,2], test$trial)
+perfROCR <- performance(predictROCR, "tpr", "fpr") # true-positive rate vs false-positive rate
+
+plot(perfROCR, colorize=TRUE,
+     print.cutoffs.at = seq(0, 1, 0.1), text.adj = c(-0.2, 1.7))
+
+cat("\nAUC :", performance(predictROCR, "auc")@y.values[[1]])
+```
+
+## decision-maker tradeoffs
+
+The decision maker for this problem, a researcher performing a review of the medical literature, would use a model (like the CART one we built here) in the following workflow:
+
+1) For all of the papers retreived in the PubMed Search, predict which papers are clinical trials using the model. This yields some initial Set A of papers predicted to be trials, and some Set B of papers predicted not to be trials. (See the figure below.)
+
+2) Then, the decision maker manually reviews all papers in Set A, verifying that each paper meets the study's detailed inclusion criteria (for the purposes of this analysis, we assume this manual review is 100% accurate at identifying whether a paper in Set A is relevant to the study). This yields a more limited set of papers to be included in the study, which would ideally be all papers in the medical literature meeting the detailed inclusion criteria for the study.
+
+3) Perform the study-specific analysis, using data extracted from the limited set of papers identified in step 2.
+
+A false negative might negatively affect the results of the literature review and analysis, while a false positive is a nuisance (one additional paper that needs to be manually checked). As a result, the cost of a false negative is much higher than the cost of a false positive, so much so that many studies actually use no machine learning (aka no Step 1) and have two people manually review each search result in Step 2. As always, we prefer a lower threshold in cases where false negatives are more costly than false positives, since we will make fewer negative predictions. 
+

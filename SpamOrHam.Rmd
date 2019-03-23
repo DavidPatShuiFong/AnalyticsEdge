@@ -1,0 +1,416 @@
+---
+title: "Separating Spam from Ham"
+author: "David Fong"
+date: "23 March 2019"
+output: html_document
+---
+
+*Homework assignment for MITX "The Analytics Edge"*
+
+Nearly every email user has at some point encountered a "spam" email, which is an unsolicited message often advertising a product, containing links to malware, or attempting to scam the recipient. Roughly 80-90% of more than 100 billion emails sent each day are spam emails, most being sent from botnets of malware-infected computers. The remainder of emails are called "ham" emails.
+
+As a result of the huge number of spam emails being sent across the Internet each day, most email providers offer a spam filter that automatically flags likely spam messages and separates them from the ham. Though these filters use a number of techniques (e.g. looking up the sender in a so-called "Blackhole List" that contains IP addresses of likely spammers), most rely heavily on the analysis of the contents of an email via text analytics.
+
+In this homework problem, we will build and evaluate a spam filter using a publicly available dataset first described in the 2006 conference paper "Spam Filtering with Naive Bayes -- Which Naive Bayes?" by V. Metsis, I. Androutsopoulos, and G. Paliouras. The "ham" messages in this dataset come from the inbox of former Enron Managing Director for Research Vincent Kaminski, one of the inboxes in the Enron Corpus. One source of spam messages in this dataset is the SpamAssassin corpus, which contains hand-labeled spam messages contributed by Internet users. The remaining spam was collected by Project Honey Pot, a project that collects spam messages and identifies spammers by publishing email address that humans would know not to contact but that bots might target with spam. The full dataset we will use was constructed as roughly a 75/25 mix of the ham and spam messages.
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tm)           # text analytics
+library(caTools)      # create training and test sets
+library(rpart)        # Classification and Regression Trees
+library(rpart.plot)
+library(randomForest) # random forest
+library(SnowballC)
+library(ROCR)         # receiver operator characteristic
+```
+
+The dataset contains just two fields:
+
+    text: The text of the email.
+    spam: A binary variable indicating if the email was spam.
+
+```{r}
+emails <- read.csv("emails.csv", stringsAsFactors = FALSE)
+str(emails)
+```
+
+```{r}
+cat("\nNumber of spam emails :", sum(emails$spam))
+cat("\nNumber of characters in the longest emial in the dataset :", max(nchar(emails$text)))
+cat("\nRow of the shortest email in the dataset :", which.min(nchar(emails$text)))
+```
+
+### pre-process emails
+
+```{r}
+corpus <- VCorpus(VectorSource(emails$text))
+
+corpus = tm_map(corpus, content_transformer(tolower)) # lower-case
+corpus = tm_map(corpus, removePunctuation)            # remove punctuation
+corpus = tm_map(corpus, removeWords, stopwords("english")) # remove stop words
+corpus = tm_map(corpus, stemDocument)                 # reduce words to 'stems'
+```
+
+### bag of words
+
+```{r}
+dtm <- DocumentTermMatrix(corpus)
+dtm
+```
+```{r}
+# remove words which don't appear in at least 5% of documents
+spdtm <- removeSparseTerms(DocumentTermMatrix(corpus), 0.95)
+spdtm
+```
+
+```{r}
+emailsSparse <- as.data.frame(as.matrix(spdtm))
+colnames(emailsSparse) <- make.names(colnames(emailsSparse))
+# some words start with a number, but R struggles with variables names that start with a number
+
+cat("Most common stem in the emails :", colnames(spdtm)[which.max(colSums(emailsSparse))])
+```
+```{r}
+emailsSparse$spam <- emails$spam # add variable 'spam' containing the email spam labels
+
+cat("Number of word stems which appear at least 5000 times\nin ham emails : ",
+    sum(colSums(emailsSparse[emailsSparse$spam == 0,!names(emailsSparse) %in% "spam"])>=5000))
+
+cat("\nMost common stems in ham emails\n")
+sort(colSums(subset(emailsSparse, spam == 0)), decreasing = TRUE)[1:10]
+
+cat("\nNumber of word stems which appear at least 1000 times\nin spam emails : ",
+    sum(colSums(emailsSparse[emailsSparse$spam == 1,!names(emailsSparse) %in% "spam"])>=1000))
+
+cat("\nMost common stems in spam emails\n")
+sort(colSums(emailsSparse[emailsSparse$spam == 1, !names(emailsSparse) %in% "spam"]), decreasing = TRUE)[1:10]
+
+```
+
+Several of the most common word stems from the ham documents, such as "enron", "hou" (short for Houston), "vinc" (the word stem of "Vince") and "kaminski", are likely specific to Vincent Kaminski's inbox. 
+
+The ham dataset is personalized to Vincent Kaminski, and therefore it might not generalize well to a general email user. Caution is definitely necessary before applying the filters derived in this problem to other email users. 
+
+## building machine language models
+
+### create training and test sets
+
+```{r}
+emailsSparse$spam <- as.factor(emailsSparse$spam)
+
+set.seed(123) # seed for random number generator
+
+split <- sample.split(emailsSparse$spam, SplitRatio = 0.7)
+train <- subset(emailsSparse, split == TRUE)
+test <- subset(emailsSparse, split == FALSE)
+```
+
+### logistic regression model
+
+```{r}
+spamlog <- glm(spam ~ ., data = train, family = "binomial")
+summary(spamlog)
+```
+
+The logistic regression model yielded the messages "algorithm did not converge" and "fitted probabilities numerically 0 or 1 occurred". Both of these messages often indicate overfitting and the first indicates particularly severe overfitting, often to the point that the training set observations are fit perfectly by the model. 
+
+# CART model
+
+```{r}
+spamCART <- rpart(spam ~ ., data = train, method = "class")
+prp(spamCART)
+```
+
+We see that "vinc" and "enron" (specific to the user 'Vincent Kaminski') appear in the CART tree as the top two branches, but that "hou" and "kaminski" (also specific to that user) do not appear. 
+
+### random forest model
+
+```{r}
+set.seed(123)
+
+spamRF <- randomForest(spam ~ . , data = train)
+
+```
+
+### calculated predicted probabilities for the three models on the training set
+
+```{r}
+predlog <- predict(spamlog, type = "response")
+predCART <- predict(spamCART)[,2]
+predRF <- predict(spamRF, type = "prob")[,2]
+```
+
+```{r}
+cat("\nTraining set predicted probabilities from spamLog < 0.00001 :",
+    sum(predlog<0.00001))
+cat("\nTraining set predicted probabilities from spamLog > 0.99999 :",
+    sum(predlog>0.99999))
+cat("\nTraining set predicted probabilities from spamLog between 0.00001 and 0.99999 :",
+    sum(predlog>=0.00001 & predlog<=0.99999))
+```
+
+The logistic regression model yielded the messages "algorithm did not converge" and "fitted probabilities numerically 0 or 1 occurred". Both of these messages often indicate overfitting and the first indicates particularly severe overfitting, often to the point that the training set observations are fit perfectly by the model. 
+
+### p-values of logistic regression model
+
+Show some of the co-efficients in the logistic regression model.
+
+```{r}
+head(coef(summary(spamlog)),10)
+
+cat("\nNumber of variables labeled as significant (at p=0.05 level)\nin logistic regression model :",
+    sum(coef(summary(spamlog))[,4] < 0.05))
+```
+
+We see that none of the variables are labeled as significant (a symptom of the logistic regression algorithm not converging).
+
+## model accuracy on training sets
+
+### logistic regression model, using a threshold of 0.5
+
+```{r}
+logconfusion <- table(train$spam, predlog >= 0.5)
+logconfusion
+
+cat("\nAccuracy : ", sum(diag(logconfusion))/nrow(train))
+cat("\nSensitivity : ", logconfusion["1","TRUE"]/sum(logconfusion["1",]))
+cat("\nSpecificity : ", logconfusion["0","FALSE"]/sum(logconfusion["0",]))
+```
+
+```{r}
+predictROCR <- prediction(predlog, train$spam)
+perfROCR <- performance(predictROCR, "tpr", "fpr") # true-positive rate vs false-positive rate
+
+plot(perfROCR, colorize=TRUE,
+     print.cutoffs.at = seq(0, 1, 0.1), text.adj = c(-0.2, 1.7))
+
+cat("\nAUC :", performance(predictROCR, "auc")@y.values[[1]])
+```
+
+### CART (classification and regression tree) accuracy on training set
+
+Using threhold of 0.5
+
+```{r}
+CARTconfusion <- table(train$spam, predCART >= 0.5)
+CARTconfusion
+
+cat("\nAccuracy : ", sum(diag(CARTconfusion))/nrow(train))
+cat("\nSensitivity : ", CARTconfusion["1","TRUE"]/sum(CARTconfusion["1",]))
+cat("\nSpecificity : ", CARTconfusion["0","FALSE"]/sum(CARTconfusion["0",]))
+```
+
+```{r}
+predictROCR <- prediction(predCART, train$spam)
+perfROCR <- performance(predictROCR, "tpr", "fpr") # true-positive rate vs false-positive rate
+
+plot(perfROCR, colorize=TRUE,
+     print.cutoffs.at = seq(0, 1, 0.1), text.adj = c(-0.2, 1.7))
+
+cat("\nAUC :", performance(predictROCR, "auc")@y.values[[1]])
+```
+
+### random forest accuracy on training set
+
+
+```{r}
+RFconfusion <- table(train$spam, predRF >= 0.5)
+RFconfusion
+
+cat("\nAccuracy : ", sum(diag(RFconfusion))/nrow(train))
+cat("\nSensitivity : ", RFconfusion["1","TRUE"]/sum(RFconfusion["1",]))
+cat("\nSpecificity : ", RFconfusion["0","FALSE"]/sum(RFconfusion["0",]))
+```
+
+```{r}
+predictROCR <- prediction(predRF, train$spam)
+perfROCR <- performance(predictROCR, "tpr", "fpr") # true-positive rate vs false-positive rate
+
+plot(perfROCR, colorize=TRUE,
+     print.cutoffs.at = seq(0, 1, 0.1), text.adj = c(-0.2, 1.7))
+
+cat("\nAUC :", performance(predictROCR, "auc")@y.values[[1]])
+```
+
+In terms of both accuracy and AUC, logistic regression is nearly perfect **when used on the training set** and outperforms the other two models.
+
+## model accuracy on test sets
+
+### Calculated predicted probabilities for the three models on the training set
+
+```{r}
+predlog <- predict(spamlog, newdata = test, type = "response")
+predCART <- predict(spamCART, newdata = test)[,2]
+predRF <- predict(spamRF, newdata = test, type = "prob")[,2]
+```
+
+### logistic regression model, using a threshold of 0.5
+
+```{r}
+logconfusion <- table(test$spam, predlog >= 0.5)
+logconfusion
+
+cat("\nAccuracy : ", sum(diag(logconfusion))/nrow(test))
+cat("\nSensitivity : ", logconfusion["1","TRUE"]/sum(logconfusion["1",]))
+cat("\nSpecificity : ", logconfusion["0","FALSE"]/sum(logconfusion["0",]))
+```
+
+```{r}
+predictROCR <- prediction(predlog, test$spam)
+perfROCR <- performance(predictROCR, "tpr", "fpr") # true-positive rate vs false-positive rate
+
+plot(perfROCR, colorize=TRUE,
+     print.cutoffs.at = seq(0, 1, 0.1), text.adj = c(-0.2, 1.7))
+
+cat("\nAUC :", performance(predictROCR, "auc")@y.values[[1]])
+```
+
+### CART (classification and regression tree) accuracy on test set
+
+Using threhold of 0.5
+
+```{r}
+CARTconfusion <- table(test$spam, predCART >= 0.5)
+CARTconfusion
+
+cat("\nAccuracy : ", sum(diag(CARTconfusion))/nrow(test))
+cat("\nSensitivity : ", CARTconfusion["1","TRUE"]/sum(CARTconfusion["1",]))
+cat("\nSpecificity : ", CARTconfusion["0","FALSE"]/sum(CARTconfusion["0",]))
+```
+
+```{r}
+predictROCR <- prediction(predCART, test$spam)
+perfROCR <- performance(predictROCR, "tpr", "fpr") # true-positive rate vs false-positive rate
+
+plot(perfROCR, colorize=TRUE,
+     print.cutoffs.at = seq(0, 1, 0.1), text.adj = c(-0.2, 1.7))
+
+cat("\nAUC :", performance(predictROCR, "auc")@y.values[[1]])
+```
+
+### random forest accuracy on test set
+
+
+```{r}
+RFconfusion <- table(test$spam, predRF >= 0.5)
+RFconfusion
+
+cat("\nAccuracy : ", sum(diag(RFconfusion))/nrow(test))
+cat("\nSensitivity : ", RFconfusion["1","TRUE"]/sum(RFconfusion["1",]))
+cat("\nSpecificity : ", RFconfusion["0","FALSE"]/sum(RFconfusion["0",]))
+```
+
+```{r}
+predictROCR <- prediction(predRF, test$spam)
+perfROCR <- performance(predictROCR, "tpr", "fpr") # true-positive rate vs false-positive rate
+
+plot(perfROCR, colorize=TRUE,
+     print.cutoffs.at = seq(0, 1, 0.1), text.adj = c(-0.2, 1.7))
+
+cat("\nAUC :", performance(predictROCR, "auc")@y.values[[1]])
+```
+
+Both CART and random forest had very similar accuracies on the training and testing sets. However, logistic regression obtained nearly perfect accuracy and AUC on the training set and had far-from-perfect performance on the testing set. This is an indicator of overfitting. 
+
+The random forest outperformed logistic regression and CART in both measures **on the test set**, obtaining an impressive AUC of 0.997 on the test set. 
+
+## Integrating word count information
+
+While we have thus far mostly dealt with frequencies of specific words in our analysis, we can extract other information from text. The last two sections of this problem will deal with two other types of information we can extract.
+
+We will use the number of words in the each email as an independent variable. We can use the original document term matrix called dtm for this task. The document term matrix has documents (in this case, emails) as its rows, terms (in this case word stems) as its columns, and frequencies as its values. As a result, the sum of all the elements in a row of the document term matrix is equal to the number of terms present in the document corresponding to the row. 
+
+```{r}
+wordCount <- rowSums(as.matrix(dtm))
+hist(wordCount)
+```
+
+Nearly all the observations are in the very left of the graph, representing small values. Therefore, this distribution is skew right.
+
+```{r}
+hist(log(wordCount))
+```
+
+Using hist(log(wordCount)), the frequencies are quite balanced, suggesting log(wordCount) is not skewed.
+
+Plot logWordCount against whether a message is spam.
+
+```{r}
+emailsSparse$logWordCount <- log(wordCount)
+boxplot(logWordCount ~ spam, data = emailsSparse)
+```
+
+### Create new training and test sets with Word Count information
+
+```{r}
+train2 <- subset(emailsSparse, split == TRUE)
+test2 <- subset(emailsSparse, split == FALSE)
+```
+
+### Create new CART model with word count information
+
+```{r}
+spam2CART <- rpart(spam ~ ., data = train2)
+prp(spam2CART)
+```
+
+### Create new random forest model with wordcount information
+
+```{r}
+spam2RF <- randomForest(spam ~ ., data = train2)
+summary(spam2RF)
+```
+
+### predictions on test set
+
+```{r}
+predCART <- predict(spam2CART, newdata = test2)[,2]
+predRF <- predict(spam2RF, newdata = test2, type = "prob")[,2]
+```
+
+### CART (classification and regression tree) accuracy on test set
+
+Using threhold of 0.5
+
+```{r}
+CARTconfusion <- table(test2$spam, predCART >= 0.5)
+CARTconfusion
+
+cat("\nAccuracy : ", sum(diag(CARTconfusion))/nrow(test2))
+cat("\nSensitivity : ", CARTconfusion["1","TRUE"]/sum(CARTconfusion["1",]))
+cat("\nSpecificity : ", CARTconfusion["0","FALSE"]/sum(CARTconfusion["0",]))
+```
+
+```{r}
+predictROCR <- prediction(predCART, test2$spam)
+perfROCR <- performance(predictROCR, "tpr", "fpr") # true-positive rate vs false-positive rate
+
+plot(perfROCR, colorize=TRUE,
+     print.cutoffs.at = seq(0, 1, 0.1), text.adj = c(-0.2, 1.7))
+
+cat("\nAUC :", performance(predictROCR, "auc")@y.values[[1]])
+```
+
+### random forest accuracy on test set using wordcount
+
+
+```{r}
+RFconfusion <- table(test2$spam, predRF >= 0.5)
+RFconfusion
+
+cat("\nAccuracy : ", sum(diag(RFconfusion))/nrow(test2))
+cat("\nSensitivity : ", RFconfusion["1","TRUE"]/sum(RFconfusion["1",]))
+cat("\nSpecificity : ", RFconfusion["0","FALSE"]/sum(RFconfusion["0",]))
+```
+
+```{r}
+predictROCR <- prediction(predRF, test$spam)
+perfROCR <- performance(predictROCR, "tpr", "fpr") # true-positive rate vs false-positive rate
+
+plot(perfROCR, colorize=TRUE,
+     print.cutoffs.at = seq(0, 1, 0.1), text.adj = c(-0.2, 1.7))
+
+cat("\nAUC :", performance(predictROCR, "auc")@y.values[[1]])
+```
+
+In this case, adding the logWordCounts variable did not result in improved results on the test set for the CART or random forest model.
