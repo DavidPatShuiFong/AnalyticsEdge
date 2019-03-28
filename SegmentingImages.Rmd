@@ -1,0 +1,189 @@
+---
+title: "Segmenting Images"
+author: "David Fong"
+date: "3/28/2019"
+output: html_document
+---
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(flexclust)
+```
+
+## flower data
+
+```{r}
+flower <- read.csv("flower.csv", header = FALSE) # no header in this CSV file
+flowerMatrix <- as.matrix(flower)
+str(flowerMatrix)
+```
+
+### create vector
+
+```{r}
+flowerVector <- as.vector(flowerMatrix)
+# to create a vector of 2500 variables, need to convert from matrix
+# converting from dataframe direct results in 50 x 50 vectors
+str(flowerVector)
+```
+
+### create distance matrix
+
+```{r}
+distance <- dist(flowerVector, method = "euclidean")
+```
+
+### create heirarchical cluster
+
+Draw dendrogram.
+
+```{r}
+clusterIntensity <- hclust(distance, method = "ward.D")
+plot(clusterIntensity)
+```
+
+The lowest row of nodes represent the data or the individual observations.
+Remaining nodes represent the clusters.
+
+Vertical lines depict the idstance between two nodes or clusters.
+The taller the line, the more dissimilar the clusters are.
+
+Cutting the dendrogram at a given level yields a certain partitioning of the data.
+
+The smaller the number of clusters, the coarser the clustering.
+Having many clusters may be too much of a stretch.
+
+The distance information between clusters can guide our choice of the number of clusters. A good partition belongs to a cut that has a good enough room to move up and down.
+
+From the above dendrogram, it seems like choosing two or three clusters is reasonable in our case.
+
+```{r}
+plot(clusterIntensity)
+rect.hclust(clusterIntensity, k=3, border="red")
+```
+
+### vector that assigns each intensity value in the flower vector to a cluster
+
+```{r}
+flowerClusters <- cutree(clusterIntensity, k=3)
+flowerClusters
+```
+
+Mean intensity value of each of the clusters
+
+```{r}
+tapply(flowerVector, flowerClusters, mean)
+```
+
+First cluster has an intensity closest to zero. Cluster 3, closest to 1, corresponds to the fairest shade.
+
+```{r}
+dim(flowerClusters) <- c(50,50) # changes flowerClusters to a matrix
+image(flowerClusters, axes = FALSE)
+```
+
+Darkest shade corresponds to the background, and is associated with the first cluster.
+
+The core of the flower i cluster 2.
+
+The petals correspond to cluster 3.
+
+### the original greyscale image
+
+```{r}
+image(flowerMatrix, axes = FALSE, col = grey(seq(0,1, length = 256)))
+```
+
+## MRI brain of a healthy patient
+
+```{r}
+healthy <- read.csv("healthy.csv", header=FALSE)
+healthyMatrix <- as.matrix(healthy)
+str(healthyMatrix)
+```
+
+### the MRI image
+
+```{r}
+image(healthyMatrix, axes = FALSE, col = grey(seq(0,1,length=256)))
+```
+
+### create vector and calculate distances
+
+```{r}
+healthyVector <- as.vector(healthyMatrix)
+```
+
+Creating a distance vector would be an EXTREMELY large vector
+of 67 billion values. As a result, we cannot use heirarchical clustering.
+
+An alternative would be *k-means* clustering. This requires us to
+set the number of clusters in advance. In this case, a possible number
+of clusters is the number of different tissue types.
+
+```{r}
+k <- 5
+set.seed(1)
+
+KMC <- kmeans(healthyVector, centers=k, iter.max=1000)
+str(KMC)
+```
+
+*k-means* clustering is quite fast, despite the size of the image.
+
+```{r}
+healthyClusters <- KMC$cluster
+
+cat("Mean intensity values of each of the clusters:\n", KMC$centers, "\n")
+cat("Size of each cluster:\n", KMC$size)
+```
+
+A generally dark image (low intensity values).
+
+```{r}
+dim(healthyClusters) <- c(nrow(healthyMatrix), ncol(healthyMatrix))
+image(healthyClusters, axes = FALSE, col = rainbow(k))
+```
+
+## a MRI with a brain tumour (oligodendroglioma)
+
+We will use the 'normal' brain as the training set.
+
+### data
+
+```{r}
+tumor <- read.csv("tumor.csv", header=FALSE)
+tumorMatrix <- as.matrix(tumor)
+tumorVector <- as.vector(tumorMatrix)
+```
+
+### Prediction
+
+flexclust package contains the object class KCCA, which stands for K-Centroids Cluster Analysis.
+
+Need to convert the information from the clustering algorithm to an object of the class KCCA.
+This conversion is needed before we can use the predict funciton on the test set tumorVector.
+
+```{r}
+KMC.kcca <- as.kcca(KMC, healthyVector)
+tumorClusters <- predict(KMC.kcca, newdata = tumorVector)
+dim(tumorClusters) <- c(nrow(tumorMatrix), ncol(tumorMatrix))
+image(tumorClusters, axes = FALSE, col=rainbow(k))
+```
+
+The tumor is highlighted with a color not seen much in the rest of the image.
+The geometry of the malignant structure is more or less identified.
+
+In the original image, the tumor has a lighter colour intensity, similar to the
+region around the eyes in the healthy brain image.
+
+```{r}
+image(tumorMatrix, axes = FALSE, col = grey(seq(0,1,length=256)))
+```
+
+MRI image segmentation is an ongoing field of research. k-means clustering is a 
+good starting point, more advanced techniques have been proposed, sucha s modified
+fuzzy k-means clustering.
+
+Possible to interpolate between the '2D' slices of an MRI to obtain a 3D reconstruction
+of the anatomy of the brain from 2D MRI cross-sections.

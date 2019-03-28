@@ -1,0 +1,136 @@
+---
+title: "movie Lens"
+author: "David Fong"
+date: "3/28/2019"
+output: html_document
+---
+
+Movie content clustering.
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ztable)
+options(ztable.type = "html") # needed if outputting to HTML (knit)
+```
+
+## data
+
+From [MovieLens website](http://files.grouplens.org/datasets/movielens/ml-100k/u.item).
+
+Multiple movie genres. Each movie may have more than one genre.
+
+```{r}
+movies <- read.table("movieLens.txt", header = FALSE, sep = "|", quote="\"")
+colnames(movies) = c("ID", "Title", "ReleaseDate", "VideoReleaseDate", "IMDB",
+                    "Unknown", "Action", "Adventure", "Animation", "Childrens", "Comedy", "Crime",
+                    "Documentary", "Drama", "Fantasy", "FilmnNoir", "Horror", "Music", "Mystery",
+                    "Romance", "Scifi", "Thriller", "War", "Western")
+str(movies)
+```
+
+Remove some variables which won't be used later.
+
+```{r}
+movies$ID <- NULL
+movies$ReleaseDate <- NULL
+movies$VideoReleaseDate <- NULL
+movies$IMDB <- NULL
+movies <- unique(movies)
+str(movies)
+```
+
+How many movies are classified as comedies?
+
+```{r}
+table(movies$Comedy)
+```
+
+Westerns?
+```{r}
+table(movies$Western)
+```
+Romance AND drama?
+
+```{r}
+table(movies$Romance & movies$Drama)
+```
+
+## Create clusters
+
+```{r}
+distances <- dist(movies[2:20], method = "euclidean")
+clusterMovies <- hclust(distances, method = "ward.D")
+plot(clusterMovies)
+```
+
+Dendogram is difficult to read, because there are over 1,000 data ponts.
+
+How many clusters should be picked? Application is to make movie recommendations
+to users. Perhaps ten or so clusters. Hard to pick the right number of clusters
+from the dendrogram.
+
+## examine clusters
+
+```{r}
+clusterGroups <- cutree(clusterMovies, k=10) # ten clusters
+
+cat("Average value of the actions variable for each of ten clusters:\n")
+tapply(movies$Action, clusterGroups, mean) 
+```
+
+Lot of **action** movies in cluster 2, but none in cluster 4, 5, 7, 8, 9 or 10.
+
+```{r}
+cat("Average value of the actions variable for each of ten clusters:\n")
+tapply(movies$Romance, clusterGroups, mean) 
+```
+
+All movies in cluster 6 and 7 are labelled **Romance**, whereas only 4% of movies cluster two are labeled as **romance** movies.
+
+## cluster centroids
+
+```{r results="asis"}
+# results="asis" required to see HTML in 'knitted' document
+
+spl <- split(movies[2:20], clusterGroups) # splits data into subsets based on clusters (ClusterGroups)
+# spl[[1]] is the first cluster group (same as "subset(movies[2:20], clusterGroups == 1)")
+
+do.call(rbind, lapply(spl, colMeans)) %>% 
+  ztable(caption = "Cluster centroids") %>%
+  makeHeatmap()
+# outputs the cluster centroid for all clusters
+# 'lapply' runs the second argument (colMeans) on each element of the first argument (spl)
+# do.call() applies 'rbind' to each of the lapply results
+# ztable() creates the ztable. makeHeatmap creates the heatmap
+```
+
+## cluster of specific movie "Men in Black"
+
+```{r}
+subset(movies, Title == "Men in Black (1997)")
+cat("Men in Black belongs to cluster group : ", clusterGroups[257])
+```
+
+## some movies from cluster 2
+
+```{r}
+cluster2 <- subset(movies, clusterGroups == 2)
+cluster2$Title[1:10]
+```
+
+## two cluster model
+
+```{r results="asis"}
+clusterGroups2 <- cutree(clusterMovies, k = 2)
+spl <- split(movies[2:20], clusterGroups2) # splits data into subsets based on clusters (ClusterGroups)
+# spl[[1]] is the first cluster group (same as "subset(movies[2:20], clusterGroups == 1)")
+
+do.call(rbind, lapply(spl, colMeans)) %>% 
+  ztable(caption = "Cluster centroids in 2-cluster model") %>% 
+  makeHeatmap() 
+# outputs the cluster centroid for all clusters
+# 'lapply' runs the second argument (colMeans) on each element of the first argument (spl)
+# do.call() applies 'rbind' to each of the lapply results
+# ztable() creates the ztable. makeHeatmap creates the heatmap
+```
