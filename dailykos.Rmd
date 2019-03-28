@@ -1,0 +1,108 @@
+---
+title: "Document Clustering with Daily Kos"
+author: "David Fong"
+date: "3/28/2019"
+output: html_document
+---
+
+## document clustering with daily kos
+
+Document clustering, or text clustering, is a very popular application of clustering algorithms. A web search engine, like Google, often returns thousands of results for a simple query. For example, if you type the search term "jaguar" into Google, around 200 million results are returned. This makes it very difficult to browse or find relevant information, especially if the search term has multiple meanings. If we search for "jaguar", we might be looking for information about the animal, the car, or the Jacksonville Jaguars football team. 
+
+Clustering methods can be used to automatically group search results into categories, making it easier to find relevant results. This method is used in the search engines PolyMeta and Helioid, as well as on FirstGov.gov, the official Web portal for the U.S. government. The two most common algorithms used for document clustering are Hierarchical and k-means. 
+
+In this problem, we'll be clustering articles published on [Daily Kos](https://www.dailykos.com/), an American political blog that publishes news and opinion articles written from a progressive point of view. Daily Kos was founded by Markos Moulitsas in 2002, and as of September 2014, the site had an average weekday traffic of hundreds of thousands of visits. 
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ztable)
+```
+
+## data
+
+The file [dailykos.csv](https://prod-edxapp.edx-cdn.org/assets/courseware/v1/f54799ecfe4091a549563fe8e5429d9d/asset-v1:MITx+15.071x+1T2019+type@asset+block/dailykos.csv) contains data on 3,430 news articles or blogs that have been posted on Daily Kos. These articles were posted in 2004, leading up to the United States Presidential Election. The leading candidates were incumbent President George W. Bush (republican) and John Kerry (democratic). Foreign policy was a dominant topic of the election, specifically, the 2003 invasion of Iraq. 
+
+Each of the variables in the dataset is a word that has appeared in at least 50 different articles (1,545 words in total). The set of  words has been trimmed according to some of the techniques covered in the previous week on text analytics (punctuation has been removed, and stop words have been removed). For each document, the variable values are the number of times that word appeared in the document. 
+
+```{r}
+dailykos <- read.csv("dailykos.csv")
+dailykosMatrix <- as.matrix(dailykos) # needed later for tapply
+str(dailykos)
+```
+
+## heirarchical clustering
+
+```{r}
+distance <- dist(dailykos, method = "euclidean")
+```
+
+The distance computation can take a long time if you have a lot of observations and/or if there are a lot of variables. It might not even work if you have too many of either!
+
+```{r}
+clusterdailykos <- hclust(distance, method = "ward.D")
+plot(clusterdailykos)
+```
+
+The choices 2 and 3 are good cluster choices according to the dendrogram, because there is a lot of space between the horizontal lines in the dendrogram in those cut off spots (draw a horizontal line across the dendrogram where it crosses 2 or 3 vertical lines). The choices of 5 and 6 do not seem good according to the dendrogram because there is very little space. 
+
+In this problem, we are trying to cluster news articles or blog posts into groups. This can be used to show readers categories to choose from when trying to decide what to read.
+
+Thinking about the application, it is probably better to show the reader more categories than 2 or 3. These categories would probably be too broad to be useful. Seven or eight categories seems more reasonable.
+
+## choosing clusters
+
+Let's pick 7 clusters. This number is reasonable according to the dendrogram, and also seems reasonable for the application.
+
+
+```{r}
+clusterGroups <- cutree(clusterdailykos, k=7) # seven clusters
+
+table(clusterGroups) # show the number of observations in each cluster
+```
+
+### The top six words in each cluster
+
+Cluster 1
+
+```{r}
+tail(sort(colMeans(subset(dailykos, clusterGroups == 1))))
+```
+
+Common words in all the clusters
+
+```{r}
+spl <- split(dailykos, clusterGroups)
+# create multiple sub-groups depending on clusterGroups
+lapply(spl, function(x) {tail(sort(colMeans(x)))})
+```
+
+## k-means clustering
+
+```{r}
+set.seed(1000)
+k <- 7 # seven clusters
+
+KMC <- kmeans(dailykos, centers=k)
+str(KMC)
+```
+
+Number of observations in each cluster
+
+```{r}
+KMC$size
+```
+
+```{r}
+spl <- split(dailykos, KMC$cluster)
+# create multiple sub-groups depending on clusterGroups
+lapply(spl, function(x) {tail(sort(colMeans(x)))})
+```
+
+### Comparing *heirarchical* clustering with *k-means* clustering
+
+Comparing clustering assignments
+
+```{r}
+table(clusterGroups, KMC$cluster)
+```
