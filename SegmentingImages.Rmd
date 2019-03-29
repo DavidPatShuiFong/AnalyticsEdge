@@ -5,6 +5,8 @@ date: "3/28/2019"
 output: html_document
 ---
 
+*exercise for MITx "The Analytics Edge"*
+
 ```{r setup, message=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(flexclust)
@@ -162,7 +164,7 @@ tumorVector <- as.vector(tumorMatrix)
 flexclust package contains the object class KCCA, which stands for K-Centroids Cluster Analysis.
 
 Need to convert the information from the clustering algorithm to an object of the class KCCA.
-This conversion is needed before we can use the predict funciton on the test set tumorVector.
+This conversion is needed before we can use the predict function on the test set tumorVector.
 
 ```{r}
 KMC.kcca <- as.kcca(KMC, healthyVector)

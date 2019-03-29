@@ -5,6 +5,8 @@ date: "3/28/2019"
 output: html_document
 ---
 
+*Homework assignment for "The Analytics Edge"*
+
 ## document clustering with daily kos
 
 Document clustering, or text clustering, is a very popular application of clustering algorithms. A web search engine, like Google, often returns thousands of results for a simple query. For example, if you type the search term "jaguar" into Google, around 200 million results are returned. This makes it very difficult to browse or find relevant information, especially if the search term has multiple meanings. If we search for "jaguar", we might be looking for information about the animal, the car, or the Jacksonville Jaguars football team. 
