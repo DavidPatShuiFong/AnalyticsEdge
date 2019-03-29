@@ -12,12 +12,13 @@ Cluster-then-predict is a methodology in which you first cluster observations an
 When selecting which stocks to invest in, investors seek to obtain good future returns. We will first use clustering to identify clusters of stocks that have similar returns over time. Then, we'll use logistic regression to predict whether or not the stocks will have positive future returns.
 
 ```{r setup, message=FALSE, warn=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+# knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(ztable)
 options(ztable.type = "html") 
 # type = "viewer" if outputting to R console
 # type = "html" needed if outputting to HTML (knit)
+library(formattable)
 library(caTools) # training/test set creation tools
 library(caret) # has preProcess command to normalize data
 library(flexclust) # obtain training set and testing sut cluster assignments for observations
@@ -60,6 +61,11 @@ summary(stocks)
 April has the largest mean value (0.026308), and September has the smallest mean value (-0.014721).
 
 ## correlations
+
+```{r}
+cor(stocks) %>%
+  formattable()
+```
 
 ```{r results="asis"}
 # results="asis" required to see HTML in 'knitted' document
