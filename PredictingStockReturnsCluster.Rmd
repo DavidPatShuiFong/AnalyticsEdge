@@ -15,7 +15,7 @@ When selecting which stocks to invest in, investors seek to obtain good future r
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(ztable)
-options(ztable.type = "viewer") 
+options(ztable.type = "html") 
 # type = "viewer" if outputting to R console
 # type = "html" needed if outputting to HTML (knit)
 library(caTools) # training/test set creation tools
@@ -61,7 +61,7 @@ April has the largest mean value (0.026308), and September has the smallest mean
 
 ## correlations
 
-```{r}
+```{r results="asis"}
 # results="asis" required to see HTML in 'knitted' document
 
 ztable(cor(stocks)) %>% makeHeatmap()
@@ -212,5 +212,73 @@ stocksTrain %>%
 
 stocksTrain1 has the observations with the highest average value of the dependent variable. 
 
-## cluster-specific predictions
+## cluster-specific logistic regression models
+
+Build logistic regression models StocksModel1, StocksModel2, and StocksModel3, which predict PositiveDec using all the other variables as independent variables.
+
+```{r}
+StocksModel1 <- glm(PositiveDec ~ .,
+                    data = stocksTrain1, family = "binomial")
+
+summary(StocksModel1)
+```
+
+```{r}
+StocksModel2 <- glm(PositiveDec ~ .,
+                    data = stocksTrain2, family = "binomial")
+
+summary(StocksModel2)
+```
+
+```{r}
+StocksModel3 <- glm(PositiveDec ~ .,
+                    data = stocksTrain3, family = "binomial")
+
+summary(StocksModel3)
+```
+
+ReturnJan, ReturnFeb, ReturnMar, ReturnJune, ReturnAug, and ReturnOct differ in sign between the models. 
+
+### cluster-specific predictions
+
+```{r}
+predictTest1 <- predict(StocksModel1, newdata = stocksTest1, type = "response") > .5
+
+confusionmatrix1 <- table(predictTest1, stocksTest1$PositiveDec)
+confusionmatrix1
+
+cat("\nAccuracy", sum(diag(confusionmatrix1))/nrow(stocksTest1))
+```
+
+```{r}
+predictTest2 <- predict(StocksModel2, newdata = stocksTest2, type = "response") > .5
+
+confusionmatrix2 <- table(predictTest2, stocksTest2$PositiveDec)
+confusionmatrix2
+
+cat("\nAccuracy", sum(diag(confusionmatrix2))/nrow(stocksTest2))
+```
+
+```{r}
+predictTest3 <- predict(StocksModel3, newdata = stocksTest3, type = "response") > .5
+
+confusionmatrix3 <- table(predictTest3, stocksTest3$PositiveDec)
+confusionmatrix3
+
+cat("\nAccuracy", sum(diag(confusionmatrix3))/nrow(stocksTest3))
+```
+
+### overall cluster-specific prediction accuracy
+
+```{r}
+AllPredictions <- c(predictTest1, predictTest2, predictTest3)
+AllOutcomes <- c(stocksTest1$PositiveDec, stocksTest2$PositiveDec, stocksTest3$PositiveDec)
+
+confusionmatrix_all <- table(AllPredictions, AllOutcomes)
+confusionmatrix_all
+
+cat("\nAccuracy", sum(diag(confusionmatrix_all))/nrow(stocksTest))
+```
+
+We see a modest improvement over the original logistic regression model. Since predicting stock returns is a notoriously hard problem, this is a good increase in accuracy. By investing in stocks for which we are more confident that they will have positive returns (by selecting the ones with higher predicted probabilities), this cluster-then-predict model can give us an edge over the original logistic regression model.
 
