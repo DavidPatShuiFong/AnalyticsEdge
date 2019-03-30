@@ -63,7 +63,11 @@ April has the largest mean value (0.026308), and September has the smallest mean
 
 ```{r}
 data.frame(cor(stocks)) %>%
-  formattable(list(area(col = 1:12, row = 1:12) ~ color_tile("#ffffff", "#d00404")))
+  round(4) %>%
+  formattable(list(
+    area(col = 1:12, row = 1:12) ~
+      color_tile("white", "red")
+    ))
 ```
 
 The largest correlation coefficient between two return variables is 0.19167279, between ReturnOct and ReturnNov. 
