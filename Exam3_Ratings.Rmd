@@ -1,0 +1,124 @@
+---
+title: "Exam3 GoogleRatings"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(caret)
+```
+
+## R Markdown
+
+We will use a dataset comprised of google reviews on attractions from 23 categories. Google user ratings range from 1 to 5 and average user ratings per category is pre-calculated. The data set is populated by capturing user ratings from Google reviews. Reviews on attractions from 23 categories across Europe are considered.  Each observation represents a user.
+
+```{r}
+ratings <- read.csv("ratings.csv")
+summary(ratings)
+```
+
+Our dataset has the following columns:
+
+    userId: a unique integer identifying a user
+    churches, resorts, beaches,..,monuments, gardens: the average rating that this user has rated any attraction corresponding to these categories.  For example, the user with userID = User 1 has parks = 3.65, which means that the average rating of all the parks this user rated is 3.65.  It can be assumed that if an average rating is 0, then that is the average rating. It is not the case that the user has not rated that category.
+
+In this problem, we aim to cluster users by their average rating per category. Hence, users in the same cluster tend to enjoy or dislike the same categories.
+
+## Missing data
+
+
+```{r}
+any(is.na(ratings$resorts))
+any(is.na(ratings$parks))
+any(is.na(ratings$museums))
+any(is.na(ratings$malls))
+any(is.na(ratings$restaurants))
+any(is.na(ratings$burger_shops))
+any(is.na(ratings$juice_bars))
+any(is.na(ratings$dance_clubs))
+any(is.na(ratings$bakeries))
+any(is.na(ratings$cafes))
+any(is.na(ratings$gardens))
+```
+
+To deal with the missing values, we will simply remove the observations with the missing values first.
+
+```{r}
+fullratings = ratings[rowSums(is.na(ratings)) == 0, ]
+summary(fullratings)
+```
+
+Which category has the highest mean score? 
+
+```{r}
+cmeans <- colMeans(fullratings %>% select(-userid)) 
+cmeans[order(desc(cmeans))]
+```
+
+## Preparing the data for clustering
+
+Normalize the data
+
+```{r}
+points <- fullratings %>% select(-userid)
+preproc = preProcess(points)
+pointsnorm = predict(preproc, points)
+summary(pointsnorm)
+```
+
+Create a dendogram
+
+```{r}
+distances = dist(pointsnorm, method = "euclidean")
+
+dend = hclust(distances, method = "ward.D")
+
+plot(dend, labels = FALSE)
+```
+
+## Clustering
+
+Set the random seed to 100, and run the k-means clustering algorithm on normalized dataset, setting the number of clusters to 4.
+
+```{r}
+set.seed(100)
+
+k <- 4
+km <- kmeans(pointsnorm, centers = k)
+str(km)
+
+```
+
+Cluster sizes
+
+```{r}
+table(km$cluster)
+```
+
+```{r}
+fullratings$cluster <- km$cluster
+```
+
+User with the lowest average rating in restaurants
+
+```{r}
+fullratings[fullratings$restaurants == min(fullratings$restaurants),]
+```
+
+
+
+```{r}
+clusteravg <- fullratings %>% select(-userid) %>% group_by(cluster) %>% summarise_all(mean)
+clusteravg
+```
+
+```{r}
+clusteravg %>% select(c("cluster", "churches", "pools", "gyms", "bakeries", "cafes"))
+```
+
+```{r}
+clusteravg %>% select(c("cluster", "beaches", "parks", "zoo", "pools", "view_points", "monuments", "gardens"))
+```
+

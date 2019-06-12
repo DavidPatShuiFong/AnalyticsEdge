@@ -1,0 +1,188 @@
+---
+title: "Bikeshare"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(caTools)
+library(ROCR)
+
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(e1071)
+
+```
+
+## Load data
+
+
+```{r}
+bikes <- read.csv("bikes.csv")
+summary(bikes)
+```
+
+In the dataset above, each observation represents one hour of the day (10886 hours). Here is a detailed description of the variables:
+
+season: 1 = spring, 2 = summer, 3 = fall, 4 = winter 
+holiday: whether the day is considered a holiday
+workingday: whether the day is neither a weekend nor holiday
+weather: 
+       1: Clear, Few clouds, Partly cloudy, Partly cloudy
+
+       2: Mist + Cloudy, Mist + Broken clouds, Mist + Few clouds, Mist 
+
+       3: Light Snow, Light Rain + Thunderstorm + Scattered clouds, Light Rain + Scattered clouds 
+
+       4: Heavy Rain + Ice Pallets + Thunderstorm + Mist, Snow + Fog 
+
+temp: temperature in Celsius
+atemp: "feels like" temperature in Celsius
+humidity: relative humidity
+windspeed: wind speed
+count: number of total rentals
+demand_level:1 if count is at least 250, 0 otherwise
+hour: the hour of the day (0-23)
+
+## Which season has the most rentals?
+
+
+```{r}
+bikes %>% group_by(season) %>% summarise(meancount = mean(count)) %>% arrange(desc(meancount))
+
+bikes %>% group_by(season) %>% summarise(totalcount = sum(count)) %>% arrange(desc(totalcount))
+
+
+```
+
+## Creatining training set
+
+```{r}
+set.seed(100)
+
+spl <- sample.split(bikes$demand_level, SplitRatio = 0.7) 
+# 0.7 in training set, based on outcome variable $Reverse
+
+train <-subset(bikes, spl == TRUE)
+test <- subset(bikes, spl == FALSE)
+
+count(train)
+
+```
+
+## Simple Logistic Regression
+
+```{r}
+simple_logit_model <- glm(demand_level ~ temp, data = train, family = "binomial")
+summary(simple_logit_model)
+```
+
+Obtain predictions on the test set. Then, using a probability threshold of 0.5, create a confusion matrix for the test set.
+
+```{r}
+
+predicted <- predict(simple_logit_model, newdata = test, type = 'response')
+
+accuracy.table <- table(test$demand_level, predicted >= 0.5)
+
+accuracy.table
+
+print(paste("Logit Model Accuracy : ", sum(diag(accuracy.table))/sum(accuracy.table)))
+print(paste("Baseline accuracy :", 1-mean(test$demand_level)))
+
+
+```
+```{r}
+print(paste("True positive rate : ", sum(test$demand_level & (predicted >= 0.5))/sum(test$demand_level)))
+print(paste("False positive rate : ", sum(!(test$demand_level) & (predicted >= 0.5))/sum(!test$demand_level)))
+
+```
+
+### some correlations
+
+```{r}
+print(paste("Weather and temperature:", cor(train$weather, train$temp)))
+print(paste("Weather and season:", cor(train$weather, train$season)))
+print(paste("Working day and holiday:", cor(train$workingday, train$holiday)))
+print(paste("Temp and atemp:", cor(train$temp, train$atemp)))
+```
+
+### another logit model
+
+Train a logistic regression model now using all of the following variables in the training set:
+
+season, holiday, workingday, weather, temp, humidity, windspeed, and hour
+
+```{r}
+logit_model <- glm(demand_level ~ season + holiday + workingday + weather + temp + humidity + windspeed + hour,
+                   data = train, family = "binomial")
+summary(logit_model)
+```
+
+Using new logistic regression model, obtain predictions on the test set. Then, using a probability threshold of 0.5, create a confusion matrix for the test set.
+
+```{r}
+
+predicted <- predict(logit_model, newdata = test, type = 'response')
+
+accuracy.table <- table(test$demand_level, predicted >= 0.5)
+
+accuracy.table
+
+print(paste("Logit Model Accuracy : ", sum(diag(accuracy.table))/sum(accuracy.table)))
+
+```
+
+Plot the ROC curve for the logistic regression model.
+
+```{r}
+pred_ROCR <- prediction(predicted, test$demand_level)
+auc_ROCR <- performance(pred_ROCR, measure = 'auc')
+plot(performance(pred_ROCR, measure = 'tpr', x.measure = 'fpr'), colorize = TRUE,
+     print.cutoffs.at = seq(0, 1, 0.1), text.adj = c(-0.2, 1.7))
+```
+
+```{r}
+paste('Area under Curve :', signif(auc_ROCR@y.values[[1]]))
+```
+
+### Classification and Regression Tree
+
+Use the caret package and the train function to perform 10-fold cross validation with the training data set to select the best cp value for a CART model that predicts the dependent variable demand_level using all of the possible independent variables except count which was used to define the dependent variable. Select the cp value from a grid consisting of the values 0.0001, 0.0002, 0.0003, ..., 0.02.
+
+Remember to convert the demand_level column to a factor variable.
+
+```{r}
+set.seed(100)
+
+numFolds <- trainControl(method = "cv", number = 10)
+cpGrid <- expand.grid(.cp = seq(0.0001, 0.02, 0.0001))
+
+train(as.factor(demand_level) ~ season+holiday+workingday+weather+temp+atemp+humidity+windspeed+hour,
+      data = train, method = "rpart", trControl = numFolds, tuneGrid = cpGrid)
+
+```
+
+```{r}
+treeCV <- rpart(as.factor(demand_level) ~ season+holiday+workingday+weather+temp+atemp+humidity+windspeed+hour,
+                       data = train, method = 'class', cp = 0.001)
+
+prp(treeCV)
+```
+
+```{r}
+predictCV <- predict(treeCV, newdata = test, type = "class")
+
+confusion_cv <- table(test$demand_level, predictCV)
+
+confusion_cv
+```
+
+
+```{r}
+print(paste("Accuracy:", sum(diag(confusion_cv))/sum(confusion_cv)))
+
+```

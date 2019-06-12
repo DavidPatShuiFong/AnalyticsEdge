@@ -1,0 +1,197 @@
+---
+title: "Analytical Policeman"
+author: "David Fong"
+date: "4th April 2019"
+output: html_document
+---
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(maps)
+library(ggmap)
+```
+
+## data
+
+We'll be using the motor vehicle theft dataset [mvt.csv](https://prod-edxapp.edx-cdn.org/assets/courseware/v1/52e7a3316f93ef4e5576fd6ff3ef0e98/asset-v1:MITx+15.071x+1T2019+type@asset+block/mvt.csv). Please download this dataset before starting this video. This data comes from the [Chicago Police Department](http://gis
+.chicagopolice.org/). 
+
+...and the [murders.csv](https://prod-edxapp.edx-cdn.org/assets/courseware/v1/8a471423a96f1f9f297b1d2545d077d3/asset-v1:MITx+15.071x+1T2019+type@asset+block/murders.csv) dataset from the U.S. Census Bureau and the FBI, as described [here](http://en.wikipedia.org/wiki/Gun_violence_in_the_United_States_by_state).
+
+```{r}
+mvt <- read.csv("mvt.csv", stringsAsFactors = FALSE)
+str(mvt)
+```
+
+191641 observations of three variables.
+
+Convert date variable to R format.
+
+```{r}
+mvt$Date <- strptime(mvt$Date, format="%m/%d/%y %H:%M")
+mvt$Weekday <- weekdays(mvt$Date)
+mvt$Hour <- mvt$Date$hour
+str(mvt)
+```
+
+## Motor vehicle thefts by day of week
+
+```{r}
+WeekdayCounts <- as.data.frame(table(mvt$Weekday))
+WeekdayCounts$Var1 <- factor(WeekdayCounts$Var1, ordered=TRUE,
+                             levels = c("Monday", "Tuesday", "Wednesday",
+                                        "Thursday", "Friday", "Saturday", "Sunday"))
+# orders Var1 levels
+
+str(WeekdayCounts)
+```
+
+```{r}
+ggplot(WeekdayCounts, aes(x = Var1, y = Freq)) + 
+  geom_line(aes(group = 1), linetype = 2, alpha = 0.3) +
+  xlab("Day of the week") + ylab("Total motor vehicle thefts")
+```
+
+## Motor vehicle thefts. Day of week and hour
+
+```{r}
+DayHourCounts <- as.data.frame(table(mvt$Weekday, mvt$Hour))
+DayHourCounts$Var1 <- factor(DayHourCounts$Var1, ordered=TRUE,
+                             levels = c("Monday", "Tuesday", "Wednesday",
+                                        "Thursday", "Friday", "Saturday", "Sunday"))
+DayHourCounts$Hour <- as.numeric(as.character(DayHourCounts$Var2))
+ # converts factor variable to a numeric variable
+DayHourCounts
+```
+
+```{r}
+ggplot(DayHourCounts, aes(x = Hour, y = Freq)) + geom_line(aes(group = Var1, color = Var1))
+```
+
+Heatmap
+
+```{r}
+ggplot(DayHourCounts, aes(x = Hour, y = Var1)) + geom_tile(aes(fill = Freq)) +
+  scale_fill_gradient(name = "Total MV thefts", low = "white", high = "red") +
+  theme(axis.title.y = element_blank()) # gets rid of y axis label
+ # geom_tiles used for heatmap
+```
+
+## geographical heat map
+
+Chicago map
+
+```{r}
+chicago <- ggmap::get_map(location = "chicago", zoom = 11)
+ggmap(chicago)
+```
+
+The first one hundred points in the theft data.
+
+```{r}
+ggmap(chicago) + geom_point(data = mvt[1:100,], aes(x=Longitude, y = Latitude))
+```
+
+Crime counts data frame for each area
+
+```{r}
+LatLonCounts <- as.data.frame(table(round(mvt$Longitude, 2), round(mvt$Latitude, 2)))
+ # rounded to two decimal places
+str(LatLonCounts)
+```
+
+note that *Var1* and *Var2* are factors.
+
+```{r}
+LatLonCounts$Long <- as.numeric(as.character(LatLonCounts$Var1))
+LatLonCounts$Lat <- as.numeric(as.character(LatLonCounts$Var2))
+ggmap(chicago) + geom_point(data = LatLonCounts,
+                            aes(x = Long, y = Lat,
+                                color = Freq, size = Freq)) +
+  scale_color_gradient(low = "yellow", high = "red")
+```
+
+```{r}
+
+LatLonCounts2 <- subset(LatLonCounts, LatLonCounts$Freq>0)
+ # removes observations with zero frequency theft, many of them in the sea!
+
+ggmap(chicago) + geom_tile(data = LatLonCounts2,
+                            aes(x = Long, y = Lat,
+                                alpha = Freq), fill = "red")
+
+```
+
+## Murders and gun ownership in the United States
+
+```{r}
+murders <- read.csv("murders.csv")
+str(murders)
+```
+
+
+51 observatioins for the fifty states (plus Washington DC). Six different variables : the name of the state, the population, the population density, the number of murders, the number of murders that used guns, and the rate of gun ownership.
+
+```{r}
+statesMap <- map_data("state")
+ggplot(statesMap, aes (x = long, y = lat, group = group)) +
+  geom_polygon(fill = "white", color = "black")
+```
+
+```{r}
+str(murders$State)
+```
+```{r}
+str(statesMap$region)
+```
+
+Note differences in the way that the two dataframes encode states (e.g. use of upper-case).
+
+```{r}
+murders$region <- tolower(murders$State)
+murderMap <- merge(statesMap, murders, by = "region")
+str(murderMap)
+```
+
+```{r}
+ggplot(murderMap, aes(x = long, y = lat, group = group, fill = Murders)) +
+  geom_polygon( color = "black") + 
+  scale_fill_gradient(low = "black", high = "red", guide = "legend")
+```
+
+Most murders in California and Texas, but they are also the most populous states.
+
+```{r}
+ggplot(murderMap, aes(x = long, y = lat, group = group, fill = Population)) +
+  geom_polygon( color = "black") + 
+  scale_fill_gradient(low = "black", high = "red", guide = "legend")
+
+```
+
+```{r}
+murderMap$MurderRate <- murderMap$Murders/murderMap$Population*100000
+
+ggplot(murderMap, aes(x = long, y = lat, group = group, fill = MurderRate)) +
+  geom_polygon( color = "black") + 
+  scale_fill_gradient(low = "black", high = "red", guide = "legend")
+```
+
+The region with the highest murder rate is an outlier, Washington D.C., and it is also a very small region on the map that cannot be seen!
+
+Create a new map where the limit is maximum 10.
+
+```{r}
+ggplot(murderMap, aes(x = long, y = lat, group = group, fill = MurderRate)) +
+  geom_polygon( color = "black") + 
+  scale_fill_gradient(low = "black", high = "red", guide = "legend",
+                      limits = c(0, 10))
+```
+
+Gun ownereship
+
+```{r}
+ggplot(murderMap, aes(x = long, y = lat, group = group, fill = GunOwnership)) +
+  geom_polygon( color = "black") + 
+  scale_fill_gradient(low = "black", high = "red", guide = "legend")
+```

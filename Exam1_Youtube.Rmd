@@ -1,0 +1,201 @@
+---
+title: "Exam1_Youtube"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+
+library(rpart)
+library(rpart.plot)
+
+library(ROCR)
+library(randomForest)
+library(caret)
+library(e1071)
+```
+
+## load data
+
+
+```{r}
+youtube_train <- read.csv("youtube_train.csv")
+youtube_test <- read.csv("youtube_test.csv")
+```
+
+```{r}
+print(paste("Number of rows in youtube_train:",nrow(youtube_train)))
+summary(youtube_train)
+```
+
+### Video with most views
+
+```{r}
+youtube_train[youtube_train$views == max(youtube_train$view),]
+youtube_train[youtube_train$views == max(youtube_train$view),"category"]
+```
+### Category with least dislikes
+
+```{r}
+youtube_train %>% group_by(category) %>% summarise(TotalDislikes = sum(dislikes)) %>% arrange(TotalDislikes)
+
+```
+
+### Videos with at least one million likes, and have at least 100,000 comments
+
+```{r}
+youtube_train %>% filter(likes >= 1000000) %>% filter(comment_count >=100000)
+```
+
+```{r}
+youtube_train %>% group_by(category) %>% summarise(TotalViews = sum(views)) %>% arrange(desc(TotalViews))
+```
+
+## Simple linear regression
+
+
+
+```{r}
+print(paste("Baseline model prediction of log(views):", mean(youtube_train$logviews)))
+print(paste("Correlation between log(views) and log(dislikes):",
+            cor(x=youtube_train$logview, y=youtube_train$logdislikes)))
+```
+
+Higher log of dislikes are associeted with higher log of views, likely because the popular videos often have many dislikes. 
+
+```{r}
+model_glm_simple <- glm(logviews ~ logdislikes, data = youtube_train)
+summary(model_glm_simple)
+```
+
+If the amount of dislikes is 1000, how many views does the model predict the video has?
+
+```{r}
+exp(8.305149+log(1000)*.786930)
+```
+
+```{r}
+test.pred <- predict(model_glm_simple, newdata = youtube_test)
+
+SS.test.total      <- sum((youtube_test$logviews - mean(youtube_train$logviews))^2)
+SS.test.residual   <- sum((youtube_test$logviews - test.pred)^2)
+SS.test.regression <- sum((test.pred - mean(youtube_train$logviews))^2)
+SS.test.total - (SS.test.regression+SS.test.residual)
+
+test.rsq <- 1 - SS.test.residual/SS.test.total  
+test.rsq
+```
+
+```{r}
+model_lm_simple_test <- lm(logviews ~ logdislikes, data = youtube_test)
+summary(model_lm_simple_test)
+```
+```{r}
+cor(youtube_train$logdislikes, youtube_train$loglikes)
+cor(youtube_train$logcomments, youtube_train$logdislikes)
+cor(youtube_train$tags, youtube_train$logcomments)
+cor(youtube_train$trending_month, youtube_train$tags)
+cor(youtube_train$publish_month, youtube_train$trending_month)
+cor(youtube_train$logcomments, youtube_train$loglikes)
+```
+
+```{r}
+model2 <- glm(logviews ~ logdislikes + tags + trending_month, data = youtube_train)
+summary(model2)
+```
+
+*logdislikes*, *tags* and *trending_month* are all significant at a level of 0.001
+
+All else being equal, an increase in tags is associated with a 1.655e-04 increase in log(views).
+
+
+
+```{r}
+test.pred <- predict(model2, newdata = youtube_test)
+
+SS.test.total      <- sum((youtube_test$logviews - mean(youtube_train$logviews))^2)
+SS.test.residual   <- sum((youtube_test$logviews - test.pred)^2)
+SS.test.regression <- sum((test.pred - mean(youtube_train$logviews))^2)
+SS.test.total - (SS.test.regression+SS.test.residual)
+
+test.rsq <- 1 - SS.test.residual/SS.test.total  
+test.rsq
+```
+
+## Problem 5 - CART and Random Forest
+
+In addition to the linear regression model, we can also train a regression tree. Use the same variable as used in the simple model, logdislikes. Train a regression tree with cp = 0.05.
+
+```{r}
+SimpleTree <- rpart(logviews ~ logdislikes,
+                    data = youtube_train, cp = 0.05)
+
+prp(SimpleTree)
+```
+
+```{r}
+test.pred <- predict(SimpleTree, newdata = youtube_test)
+
+SS.test.total      <- sum((youtube_test$logviews - mean(youtube_train$logviews))^2)
+SS.test.residual   <- sum((youtube_test$logviews - test.pred)^2)
+SS.test.regression <- sum((test.pred - mean(youtube_train$logviews))^2)
+SS.test.total - (SS.test.regression+SS.test.residual)
+
+test.rsq <- 1 - SS.test.residual/SS.test.total  
+test.rsq
+```
+
+```{r}
+set.seed(100)
+
+numFolds <- trainControl(method = "cv", number = 10)
+cpGrid <- expand.grid(.cp = seq(0.0001, 0.005, 0.0001))
+
+train(logviews ~ logdislikes,
+      data = youtube_train, method = "rpart", trControl = numFolds, tuneGrid = cpGrid)
+
+```
+
+```{r}
+NewTree <- rpart(logviews ~ logdislikes,
+                    data = youtube_train, cp = 1e-04)
+
+prp(NewTree)
+```
+
+```{r}
+test.pred <- predict(NewTree, newdata = youtube_test)
+
+SS.test.total      <- sum((youtube_test$logviews - mean(youtube_train$logviews))^2)
+SS.test.residual   <- sum((youtube_test$logviews - test.pred)^2)
+SS.test.regression <- sum((test.pred - mean(youtube_train$logviews))^2)
+SS.test.total - (SS.test.regression+SS.test.residual)
+
+test.rsq <- 1 - SS.test.residual/SS.test.total  
+test.rsq
+```
+
+```{r}
+set.seed(100)
+myForest <- randomForest(logviews ~ logdislikes,
+                         data = youtube_train, nodesize = 200, ntree = 50)
+# nodesize is same as 'minbucket' in CART
+# ntree is number of trees to build
+
+```
+
+```{r}
+test.pred <- predict(myForest, newdata = youtube_test)
+
+SS.test.total      <- sum((youtube_test$logviews - mean(youtube_train$logviews))^2)
+SS.test.residual   <- sum((youtube_test$logviews - test.pred)^2)
+SS.test.regression <- sum((test.pred - mean(youtube_train$logviews))^2)
+SS.test.total - (SS.test.regression+SS.test.residual)
+
+test.rsq <- 1 - SS.test.residual/SS.test.total  
+test.rsq
+```
+
+
+

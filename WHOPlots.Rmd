@@ -1,0 +1,135 @@
+---
+title: "WHO plots"
+author: "David Fong"
+date: "4/3/2019"
+output: html_document
+---
+
+*Exercise in the "The Analytics Edge" (MITx)*
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+```
+
+## data
+
+```{r}
+WHO <- read.csv("WHO.csv")
+str(WHO)
+```
+
+194 observations (countries) for 13 different variables
+
+* **Country** name of country
+* **Region** region
+* **Population** in 1000s
+* **Under15** percentage under 15
+* **Over60** percentage over 60
+* **FertilityRate** average number of children per woman
+* **LifeExpectancy** in years
+* **ChildMortality** number of children who die by age five per 1000
+* **CellularSubscribers** Number of cellular ubscribers per 100
+* **LiteracyRate** Literacry rate among adults older than 15 years
+* **GNI** Gross national icome per capita
+* **PrimarySchoolEnrollmentMale** percentage of male children enrolled in primary school
+* **PrimarySchoolEnrollmentFemale** percentage of female children enrolled in primary school
+
+## Plots
+
+### Fertility Rate vs GNI 
+
+Using basic plot package
+
+```{r}
+plot(WHO$GNI, WHO$FertilityRate)
+```
+
+Using ggplot2
+
+```{r}
+scatterplot <- ggplot(WHO, aes(x = GNI, y = FertilityRate))
+fertilityGNIplot <- scatterplot + 
+  geom_point(color = "blue", size = 3, shape = 17) + 
+  ggtitle("Fertility Rate vs Gross National Income")
+
+fertilityGNIplot
+```
+
+Save the fertility vs GNI plot into a PDF
+
+```{r}
+pdf("MyPlot.pdf")
+print(fertilityGNIplot)
+dev.off() # closes the pdf file
+```
+
+color points by region
+
+```{r}
+ggplot(WHO, aes(x=GNI, y=FertilityRate, color=Region)) + geom_point()
+```
+
+Points from regions are located in different areas of the plot.
+
+Now colour according to life expectancy.
+
+```{r}
+ggplot(WHO, aes(x=GNI, y=FertilityRate, color=LifeExpectancy)) + geom_point()
+```
+
+
+```{r}
+ggplot(WHO, aes(x=FertilityRate, y=Under15, color=Region)) + geom_point() + scale_color_brewer(palette="Dark2")
+```
+
+Appears to be a correlation, but as the fertility rate increases, the Under15 variable increases less.
+
+Not a linear relatioinship, but perhaps a log transformation of FertilityRate will be better.
+
+Graph Under 15 vs log(FertilityRate)
+
+```{r}
+ggplot(WHO, aes(x=log(FertilityRate), y=Under15)) + geom_point()
+```
+
+### Create a model
+
+```{r}
+model <- lm(Under15 ~ log(FertilityRate), data=WHO)
+summary(model)
+```
+
+Highly significant, with $R^2$ 0.9387
+
+compare this to a model which *doesn't* use the log transformation.
+
+```{r}
+model <- lm(Under15 ~ FertilityRate, data=WHO)
+summary(model)
+
+```
+
+$R^2$ is less, at 0.8756
+
+Add a regression line to the Under15 vs log(FertilityRate) plot
+
+```{r}
+ggplot(WHO, aes(x=log(FertilityRate), y=Under15)) + geom_point() + stat_smooth(method="lm")
+```
+
+Regression line with 95% confidence interval.
+
+Can change to 99% confidence interval.
+
+```{r}
+ggplot(WHO, aes(x=log(FertilityRate), y=Under15)) + geom_point()+ 
+  stat_smooth(method="lm", level=0.99)
+```
+
+or with no confidence interval at all
+
+```{r}
+ggplot(WHO, aes(x=log(FertilityRate), y=Under15)) + geom_point()+ 
+  stat_smooth(method="lm", se=FALSE, color="orange")
+```

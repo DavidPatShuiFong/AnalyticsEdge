@@ -1,0 +1,105 @@
+---
+title: "Visualizing Text Data using Word Clouds"
+author: "David Fong"
+date: "6th April 2019"
+output: html_document
+---
+
+Sometimes our goal is to understand commonly occurring topics in text data instead of to predict the value of some dependent variable. In such cases, word clouds can be a visually appealing way to display the most frequent words in a body of text.
+
+A word cloud arranges the most common words in some text, using size to indicate the frequency of a word.
+
+While we could generate word clouds using free generators available on the Internet, we will have more flexibility and control over the process if we do so in R.
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tm)
+library(wordcloud)
+library(RColorBrewer)
+```
+
+## data
+
+We will visualize the text of tweets about Apple, a dataset we used earlier in the course. As a reminder, this dataset (which can be downloaded from tweets.csv) has the following variables:
+
+**Tweet**  the text of the tweet
+
+**Avg** - the sentiment of the tweet, as assigned by users of Amazon Mechanical Turk. The score ranges on a scale from -2 to 2, where 2 means highly positive sentiment, -2 means highly negative sentiment, and 0 means neutral sentiment.
+
+```{r}
+tweets <- read.csv("tweets_2.csv", stringsAsFactors = FALSE)
+str(tweets)
+```
+
+pre-processing
+
+```{r}
+corpus <- VCorpus(VectorSource(tweets$Tweet)) # convert tweets into corpus for pre-processing
+
+corpus <- tm_map(corpus, content_transformer(tolower)) # lower-case
+corpus <- tm_map(corpus, removePunctuation) # remove punctuation
+corpus <- tm_map(corpus, removeWords, c(stopwords("english"))) # remove stop-words
+
+frequencies <- DocumentTermMatrix(corpus) # create document-term-matrix
+allTweets <- as.data.frame(as.matrix(frequencies))
+
+cat("\nThere are", ncol(allTweets), "unique words across all tweets.\n")
+```
+
+We want to create an interpretable display of a document's contents, and our results will be easier to read if they include full words instead of just the stems.
+
+## create wordcloud
+
+```{r}
+cloud <- wordcloud(colnames(allTweets), colSums(allTweets),
+                   scale = c(3, 0.25))
+```
+
+"apple" is by far the largest, and therefore most common, word.
+
+## removing 'apple' from the wordcloud
+
+```{r}
+corpus <- VCorpus(VectorSource(tweets$Tweet)) # convert tweets into corpus for pre-processing
+
+corpus <- tm_map(corpus, content_transformer(tolower)) # lower-case
+corpus <- tm_map(corpus, removePunctuation) # remove punctuation
+corpus <- tm_map(corpus, removeWords, c("apple", stopwords("english"))) # remove stop-words
+
+frequencies <- DocumentTermMatrix(corpus) # create document-term-matrix
+allTweets <- as.data.frame(as.matrix(frequencies))
+
+cloud <- wordcloud(colnames(allTweets), colSums(allTweets),
+                   scale = c(3, 0.25))
+```
+
+So far, the word clouds we've built have not been too visually appealing -- they are crowded by having too many words displayed, and they don't take advantage of color.
+
+non-random word order
+
+```{r}
+cloud <- wordcloud(colnames(allTweets), colSums(allTweets),
+                   scale = c(3, 0.25), random.order = FALSE,
+                   colors = brewer.pal(9, "Blues")[c(-1, -2, -3, -4)])
+# uses blue palette,  but removes the (light) first 4 colours
+```
+
+negative tweets
+
+```{r}
+corpus <- VCorpus(VectorSource(subset(tweets$Tweet, tweets$Avg < -1)))
+                  # convert tweets into corpus for pre-processing
+
+corpus <- tm_map(corpus, content_transformer(tolower)) # lower-case
+corpus <- tm_map(corpus, removePunctuation) # remove punctuation
+corpus <- tm_map(corpus, removeWords, c("apple", stopwords("english"))) # remove stop-words
+
+frequencies <- DocumentTermMatrix(corpus) # create document-term-matrix
+negTweets <- as.data.frame(as.matrix(frequencies))
+
+cloud <- wordcloud(colnames(negTweets), colSums(negTweets),
+                   scale = c(3, 0.25), random.order = FALSE, 
+                   colors = brewer.pal(9, "Blues")[c(-1, -2, -3, -4)],
+                   random.color = TRUE)
+```

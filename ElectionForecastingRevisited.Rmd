@@ -1,0 +1,123 @@
+---
+title: "Election Forecasting"
+author: "David Fong"
+date: "4th April 2019"
+output: html_document
+---
+
+*assignment for "The Analytics Edge" (MITx)*
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(maps)
+library(ggmap)
+
+```
+
+## US map
+
+```{r}
+stateMap <- map_data("state")
+str(stateMap)
+```
+
+```{r}
+summary(stateMap)
+```
+
+Number of groups
+
+```{r}
+length(unique(stateMap$group))
+```
+
+```{r}
+ggplot(statesMap, aes(x = long, y = lat, group = group)) + 
+  geom_polygon(fill = "white", color = "blue") 
+```
+
+## Coloring the States by Predictions
+
+Now, let's color the map of the US according to our 2012 US presidential election predictions from the Unit 3 Recitation
+
+```{r}
+polling <- read.csv("PollingImputed.csv")
+str(polling)
+```
+
+Split the data using the subset function into a training set called "Train" that has observations from 2004 and 2008, and a testing set called "Test" that has observations from 2012.
+
+```{r}
+Train <- subset(polling, polling$Year<2012)
+Test <- subset(polling, polling$Year == 2012)
+```
+
+We only have 45 states in our testing set, since we are missing observations for Alaska, Delaware, Alabama, Wyoming, and Vermont, so these states will not appear colored in our map. 
+
+Create a logistic regression model and create predictions
+
+```{r}
+mod2 <- glm(Republican~SurveyUSA+DiffCount, data=Train, family="binomial")
+TestPrediction <- predict(mod2, newdata=Test, type="response")
+```
+
+TestPrediction gives the predicted probabilities for each state, but let's also create a vector of Republican/Democrat predictions.
+
+```{r}
+TestPredictionBinary <- as.numeric(TestPrediction > 0.5)
+```
+
+Put the predictions and state labels in a data.frame so that we can use ggplot:
+
+```{r}
+predictionDataFrame <- data.frame(TestPrediction, TestPredictionBinary, Test$State)
+summary(predictionDataFrame)
+```
+
+How many states is our binary prediction 1 (for 2012), corresponding to Republican?
+
+```{r}
+sum(predictionDataFrame$TestPredictionBinary)
+```
+
+We need to merge "predictionDataFrame" with the map data "statesMap", like we did in lecture. Before doing so, we need to convert the Test.State variable to lowercase, so that it matches the region variable in statesMap.
+
+```{r}
+predictionDataFrame$region <- tolower(predictionDataFrame$Test.State)
+predictionMap <- merge(statesMap, predictionDataFrame, by = "region")
+predictionMap <- predictionMap[order(predictionMap$order),]
+
+summary(predictionMap)
+```
+
+Color the states according to our binary predictions
+
+```{r}
+ggplot(predictionMap, aes(x = long, y = lat, group = group, fill = TestPredictionBinary)) +
+  geom_polygon(color = "black")
+```
+
+Light blue represent Republican prediction.
+
+We can also change the color scheme to blue and red, to match the blue color associated with the Democratic Party in the US and the red color associated with the Republican Party in the US. 
+ 
+```{r}
+ggplot(predictionMap, aes(x = long, y = lat, group = group, fill = TestPredictionBinary)) +
+  geom_polygon(color = "black") + 
+  scale_fill_gradient(low = "blue", high = "red", guide = "legend", breaks= c(0,1),
+                      labels = c("Democrat", "Republican"),
+                      name = "Prediction 2012")
+```
+
+Alternatively, we could plot the probabilities instead of the binary predictions. 
+
+```{r}
+ggplot(predictionMap, aes(x = long, y = lat, group = group, fill = TestPrediction)) +
+  geom_polygon(color = "black") + 
+  scale_fill_gradient(low = "blue", high = "red", guide = "legend",
+                      name = "Prediction 2012")
+
+```
+
+The two maps look very similar. The only state that appears purple (the color between red and blue) is the state of Iowa, so the maps look very similar. This is because most of our predicted probabilities are close to 0 or close to 1.
