@@ -1,0 +1,196 @@
+---
+title: "World Population 7,777,777,777"
+author: "David Fong"
+date: "23rd March 2020"
+output: html_document
+---
+
+```{r setup, quiet = TRUE, message = FALSE, warnings = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lubridate) # for time functions
+library(tidyverse)
+library(chemCal) # for 'inverse.predict' function
+library(formattable) # provide 'comma' function
+```
+
+## World population
+
+Data derived from [Worldometers.info](https://www.worldometers.info/world-population/) website.
+
+Dates and times are in Melbourne time, which up until 4th April is Australian Eastern Daylight Savings Time (AEDT).
+
+
+```{r data}
+d <- data.frame(Time = ymd_hms("2020-03-05 04:04:00", tz = "Australia/Melbourne"), Population = 7768625956)
+d <- d %>% add_row(Time = ymd_hms("2020-03-06 21:40:00", tz = "Australia/Melbourne"), Population = 7769011917)
+d <- d %>% add_row(Time = ymd_hms("2020-03-10 02:21:00", tz = "Australia/Melbourne"), Population = 7769723385)
+d <- d %>% add_row(Time = ymd_hms("2020-03-11 04:23:00", tz = "Australia/Melbourne"), Population = 7769964915)
+d <- d %>% add_row(Time = ymd_hms("2020-03-19 00:00:00", tz = "Australia/Melbourne"), Population = 7771705611)
+d <- d %>% add_row(Time = ymd_hms("2020-03-20 06:51:00", tz = "Australia/Melbourne"), Population = 7771991830)
+d <- d %>% add_row(Time = ymd_hms("2020-03-21 02:32:00", tz = "Australia/Melbourne"), Population = 7772174460)
+
+d2 <- data.frame(Time = ymd_hms("2020-03-23 17:30:00", tz = "Australia/Melbourne"), Population = 7772758654)
+# another observation, which is not used in model creation, but will be used for model testing
+```
+
+## Population vs Time Plots
+
+This is pretty close to linear, as might be expected over a relatively short time period.
+
+```{r plot}
+ggplot(d, aes (x = Time, y = Population)) + geom_point()
+```
+
+## Normalizing the data
+
+To help with model generation, a new variable **nTime** is calculated, where time '0' is defined as the time of the first observation (2020-03-05 04:04:00 AEDT). The unit of **nTime** is seconds.
+
+Also population growth is often modeled as exponential, **logPopulation** is defined as the natural logarithm of the population.
+
+```{r}
+d <- d %>%
+  mutate(logPopulation = log(Population), # the log of the Population
+         nTime = as.numeric(as.duration(Time - d$Time[[1]]))) 
+# the first observation is time 'zero'
+
+d2 <- d2 %>% # do the same for the test data
+  mutate(logPopulation = log(Population), # the log of the Population
+         nTime = as.numeric(as.duration(Time - d$Time[[1]]))) 
+# the first observation is time 'zero'
+```
+
+## Models
+
+### Model 1 - A simple linear model. 
+
+Although population growth is often modeled as exponential, this is not unreasonable when using data from a relatively short time period.
+
+$$
+\begin{align}
+Population &= \beta_0 + \beta_1 \times t\\
+\end{align}
+$$
+
+where $t$ is the normalized time **nTime**.
+
+```{r}
+model1 <- lm(Population ~ nTime, data = d)
+summary(model1)
+```
+
+### Model 2 - A simple exponential growth model.
+
+$$
+\begin{aligned}
+Population & = \beta_0\times e^{\beta_1 \times t}\\
+\implies log_e Population & = log_e \beta_0 + \beta_1 \times t
+\end{aligned}
+$$
+
+```{r}
+model2 <- lm(logPopulation ~ nTime, data = d)
+summary(model2)
+```
+
+### Model 3 - A varying exponential growth model
+
+Perhaps population growth is exponential, but the rate of exponential growth is changing with time e.g. declining due to demographic transition. If, within the timeframe of the data, the rate of exponential growth change is locally linear, this can be modeled:
+
+$$
+\begin{aligned}
+Population & = \beta_0\times e^{(\beta_1 + \beta_2 t ) t}\\
+\implies log_e Population & = log_e \beta_0 + (\beta_1 + \beta_2 t) t\\
+\implies log_e Population & = log_e \beta_0 + \beta_1t + \beta_2 t^2
+\end{aligned}
+$$
+
+
+```{r}
+model3 <- lm(logPopulation ~ nTime + I(nTime^2), data = d)
+summary(model3)
+```
+
+## Model performance
+
+```{r}
+d2 # the test data
+```
+
+Are the predictions of the three models for `r d2$Time` close to the actual
+observed population of `r comma(d2$Population, digits = 0)`?
+
+```{r}
+# simple linear model
+predict(model1, newdata = d2)
+```
+```{r}
+# simple exponential growth model
+exp(predict(model2, newdata = d2)) # need to raise e^logPopulation
+```
+
+```{r}
+# varying exponential growth model
+exp(predict(model3, newdata = d2)) # need to raise e^logPopulation
+```
+
+The predictions of the simple linear model (*model1*) and varying exponential growth model (*model3*) are both superior to the simple exponential growth model (*model3*), and almost identical.
+
+But the simple linear model (*model1*) is the simpler model, requiring fewer variables, and so could be considered superior.
+
+## Prediction for population 7,777,777,777
+
+```{r}
+target <- 7777777777
+```
+
+All the predictions for the time of world population achieving `r comma(target, digits = 0)` are in mid-April. In early April, Melbourne time changes from Daylight Savings (AEDT) to Australian Eastern Standard Time (AEST).
+
+### Simple linear model '*model1*'
+
+```{r}
+x1 <- inverse.predict(model1, target)
+prediction_time1 <- d$Time[1] + dseconds(x1$Prediction)
+# dseconds 'duration' includes the change from Daylight Savings to Standard Time
+
+x1
+prediction_time1
+with_tz(prediction_time1, tz = "GMT")
+```
+
+### Simple exponential growth model '*model2*'
+
+```{r}
+x2 <- inverse.predict(model2, log(target)) # need to 'log' the population
+prediction_time2 <- d$Time[1] + dseconds(x2$Prediction)
+# dseconds 'duration' includes the change from Daylight Savings to Standard Time
+
+x2
+prediction_time2
+with_tz(prediction_time2, tz = "GMT")
+```
+
+### Varying exponential growth model '*model3*'
+
+Can't use *inverse.predict*, because *inverse.predict* expects only one variable/predictor.
+
+```{r}
+# guess that the time, in seconds, is the same as the predicted by model1
+
+x3 <- x1$Prediction
+
+repeat{
+  p <- round(exp(predict(model3, newdata = data.frame(nTime = x3))))
+  if (p == target) {break} # reached the target!
+  if (p < target) {x3 <- x3 + 1} # increment one second
+  if (p > target) {x3 <- x3 - 1} # decrement one second
+}
+
+prediction_time3 <- d$Time[1] + dseconds(x3)
+x3
+prediction_time3
+with_tz(prediction_time3, tz = "GMT")
+```
+
+## Results
+
+The simple linear model prediction (*model 1* : GMT `r with_tz(prediction_time1, tz = "GMT")`)  and varying exponential model prediction (*model3* : GMT `r with_tz(prediction_time3, tz = "GMT")`) are similar.
