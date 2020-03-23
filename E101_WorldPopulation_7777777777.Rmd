@@ -1,24 +1,31 @@
 ---
 title: "World Population 7,777,777,777"
+subtitle: <h3>for ENVR-101 Introduction to Sustainability and Environmental Management</h3>
 author: "David Fong"
 date: "23rd March 2020"
+abstract:
+  When, according to currently available population data from www.worldometers.info, will the world population reach 7,777,777,777?
 output: html_document
+bibliography: "references.bib"
+csl: apa.csl
 ---
 
-```{r setup, quiet = TRUE, message = FALSE, warnings = FALSE}
+<br />
+<br />
+
+## World population data
+
+Population data derived from the World Population Clock website [@2020].
+
+Dates and times are in Melbourne time, which up until 4th April 2020, is Australian Eastern Daylight Savings Time (AEDT).
+
+```{r setup, message = FALSE, warnings = FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(lubridate) # for time functions
 library(tidyverse)
 library(chemCal) # for 'inverse.predict' function
 library(formattable) # provide 'comma' function
 ```
-
-## World population
-
-Data derived from [Worldometers.info](https://www.worldometers.info/world-population/) website.
-
-Dates and times are in Melbourne time, which up until 4th April is Australian Eastern Daylight Savings Time (AEDT).
-
 
 ```{r data}
 d <- data.frame(Time = ymd_hms("2020-03-05 04:04:00", tz = "Australia/Melbourne"), Population = 7768625956)
@@ -33,19 +40,19 @@ d2 <- data.frame(Time = ymd_hms("2020-03-23 17:30:00", tz = "Australia/Melbourne
 # another observation, which is not used in model creation, but will be used for model testing
 ```
 
-## Population vs Time Plots
+## Population vs Time Plot
 
-This is pretty close to linear, as might be expected over a relatively short time period.
+Population growth appears close to linear, as might be expected over a relatively short time period.
 
 ```{r plot}
 ggplot(d, aes (x = Time, y = Population)) + geom_point()
 ```
 
-## Normalizing the data
+## Normalizing and modifying the data
 
 To help with model generation, a new variable **nTime** is calculated, where time '0' is defined as the time of the first observation (2020-03-05 04:04:00 AEDT). The unit of **nTime** is seconds.
 
-Also population growth is often modeled as exponential, **logPopulation** is defined as the natural logarithm of the population.
+Population growth is often modeled as exponential. **logPopulation** is defined as the natural logarithm of the population.
 
 ```{r}
 d <- d %>%
@@ -63,7 +70,7 @@ d2 <- d2 %>% # do the same for the test data
 
 ### Model 1 - A simple linear model. 
 
-Although population growth is often modeled as exponential, this is not unreasonable when using data from a relatively short time period.
+Although population growth is often modeled as exponential, when using data from a relatively short time period, the growth might be approximated as linear.
 
 $$
 \begin{align}
@@ -94,7 +101,7 @@ summary(model2)
 
 ### Model 3 - A varying exponential growth model
 
-Perhaps population growth is exponential, but the rate of exponential growth is changing with time e.g. declining due to demographic transition. If, within the timeframe of the data, the rate of exponential growth change is locally linear, this can be modeled:
+Perhaps population growth is exponential, but the rate of exponential growth is changing with time e.g. declining due to demographic transition [@vriesSustainabilityScience2013]. If, within the timeframe of the data, the rate of exponential growth change is locally linear, this can be modeled:
 
 $$
 \begin{aligned}
@@ -194,3 +201,13 @@ with_tz(prediction_time3, tz = "GMT")
 ## Results
 
 The simple linear model prediction (*model 1* : GMT `r with_tz(prediction_time1, tz = "GMT")`)  and varying exponential model prediction (*model3* : GMT `r with_tz(prediction_time3, tz = "GMT")`) are similar.
+
+### Model limitations
+
+All three growth models base current growth on the entirety of the world population. In reality, only some age strata contribute to population growth. The size of these strata, and the reproductive rate of these strata, vary widely across the societies of the world.
+
+Unable to predict if www.worldometers.info will change their model over the next few weeks to deal with unexpected influences on population, e.g. COVID-19 [@roser2020owid]!
+
+# References
+
+<div id = "refs"></div>
