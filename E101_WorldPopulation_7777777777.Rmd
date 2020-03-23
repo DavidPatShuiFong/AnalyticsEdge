@@ -101,7 +101,7 @@ summary(model2)
 
 ### Model 3 - A varying exponential growth model
 
-Perhaps population growth is exponential, but the rate of exponential growth is changing with time e.g. declining due to demographic transition [@vriesSustainabilityScience2013]. If, within the timeframe of the data, the rate of exponential growth change is locally linear, this can be modeled:
+Perhaps population growth is exponential, but the rate of exponential growth is changing with time e.g. declining due to demographic transition [@devries2013]. If, within the timeframe of the data, the rate of exponential growth change is locally linear, this can be modeled:
 
 $$
 \begin{aligned}
@@ -201,6 +201,10 @@ with_tz(prediction_time3, tz = "GMT")
 ## Results
 
 The simple linear model prediction (*model 1* : GMT `r with_tz(prediction_time1, tz = "GMT")`)  and varying exponential model prediction (*model3* : GMT `r with_tz(prediction_time3, tz = "GMT")`) are similar.
+
+## Commentary
+
+Although population growth is often modeled as exponential growth, the current human population in the world is very heterogeneous with regard to population growth. Some areas have a very youthful age structure, others are much older. Some areas have population growth which could be described as exponential growth, others have much more static, or even declining, population. If there are balancing influences on population growth, then population growth could be *logistic* [@devries2013], and currently in a linear growth phase.
 
 ### Model limitations
 
