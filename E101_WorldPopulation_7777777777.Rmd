@@ -37,7 +37,8 @@ d <- d %>% add_row(Time = ymd_hms("2020-03-20 06:51:00", tz = "Australia/Melbour
 d <- d %>% add_row(Time = ymd_hms("2020-03-21 02:32:00", tz = "Australia/Melbourne"), Population = 7772174460)
 
 d2 <- data.frame(Time = ymd_hms("2020-03-23 17:30:00", tz = "Australia/Melbourne"), Population = 7772758654)
-# another observation, which is not used in model creation, but will be used for model testing
+d2 <- d2 %>% add_row(Time = ymd_hms("2020-03-25 07:52:00", tz = "Australia/Melbourne"), Population = 7773114617)
+# observations not used in model creation, but will be used for model testing
 ```
 
 ## Population vs Time Plot
@@ -45,7 +46,9 @@ d2 <- data.frame(Time = ymd_hms("2020-03-23 17:30:00", tz = "Australia/Melbourne
 Population growth appears close to linear, as might be expected over a relatively short time period.
 
 ```{r plot}
-ggplot(d, aes (x = Time, y = Population)) + geom_point()
+ggplot(d, aes (x = Time, y = Population)) +
+  geom_point() + # the data used for modeling
+  geom_point(data = d2, aes (colour = "Test")) + labs(colour = "Dataset") 
 ```
 
 ## Normalizing and modifying the data
@@ -123,8 +126,8 @@ summary(model3)
 d2 # the test data
 ```
 
-Are the predictions of the three models for `r d2$Time` close to the actual
-observed population of `r comma(d2$Population, digits = 0)`?
+Are the predictions of the three models for (`r paste(d2$Time, collapse = " and ")`) close to the actual
+observed population of (`r paste(comma(d2$Population, digits = 0), collapse = " and ")`)?
 
 ```{r}
 # simple linear model
@@ -144,13 +147,56 @@ The predictions of the simple linear model (*model1*) and varying exponential gr
 
 But the simple linear model (*model1*) is the simpler model, requiring fewer variables, and so could be considered superior.
 
+
 ## Prediction for population 7,777,777,777
 
 ```{r}
 target <- 7777777777
 ```
 
-All the predictions for the time of world population achieving `r comma(target, digits = 0)` are in mid-April. In early April, Melbourne time changes from Daylight Savings (AEDT) to Australian Eastern Standard Time (AEST).
+
+### Prediction plot
+
+Population 'target' of `r comma(target, digits = 0)` indicated with the horizontal dashed line.
+
+```{r warning=FALSE}
+
+time_range <- ymd_hms("2020-03-05 04:04:00", tz = "Australia/Melbourne"):
+  ymd_hms("2020-04-30 00:00:00", tz = "Australia/Melbourne")
+time_range <- time_range[seq(1, length(time_range), 3600)] # only keep one 'x' value per hour
+time_range <- as_datetime(time_range) # convert back to times
+
+pred1 <- data.frame(Time = time_range,
+                    Population = predict(model1,
+                                         data.frame(nTime = as.numeric(time_range - time_range[1]))))
+pred2 <- data.frame(Time = time_range,
+                    Population = exp(predict(model2,
+                                             data.frame(nTime = as.numeric(time_range - time_range[1])))))
+pred3 <- data.frame(Time = time_range,
+                    Population = exp(predict(model3,
+                                             data.frame(nTime = as.numeric(time_range - time_range[1])))))
+
+
+plotdata <- bind_rows(d %>% mutate(Observation = "Sample", Model = NA),
+                      d2 %>% mutate(Observation = "Test", Model = NA),
+                      pred1 %>% mutate(Model = "Model1", Observation = NA),
+                      pred2 %>% mutate(Model = "Model2", Observation = NA),
+                      pred3 %>% mutate(Model = "Model3", Observation = NA))
+
+ggplot(plotdata, aes(x = Time, y = Population)) +
+  geom_point(aes(shape = Observation)) + # the data used for modeling and testing
+  scale_shape_manual(values = c(25,24), breaks = c("Sample", "Test")) +
+  geom_line(aes(group = Model, color = Model)) +
+  scale_color_manual(values = c("red", "green", "blue"),
+                     breaks = c("Model1", "Model2", "Model3"),
+                     guide = guide_legend(override.aes = list(shape = rep(NA, 3)))) +
+  theme_light() +
+  geom_hline(yintercept = target, color = "gold1", linetype = "dashed", size = 1) +
+  expand_limits(x = ymd_hms("2020-04-30 00:00:00", tz = "Australia/Melbourne"))
+
+```
+
+All the model predictions for the time of world population achieving `r comma(target, digits = 0)` are in mid-April. In early April, Melbourne time changes from Daylight Savings (AEDT) to Australian Eastern Standard Time (AEST).
 
 ### Simple linear model '*model1*'
 
@@ -178,14 +224,15 @@ with_tz(prediction_time2, tz = "GMT")
 
 ### Varying exponential growth model '*model3*'
 
-Can't use *inverse.predict*, because *inverse.predict* expects only one variable/predictor.
 
 ```{r}
-# guess that the time, in seconds, is the same as the predicted by model1
+# Can't use *inverse.predict*, because *inverse.predict* expects only one variable/predictor.
+
+# Guess that the time, in seconds, is the same as the predicted by model1
 
 x3 <- x1$Prediction
 
-repeat{
+repeat {
   p <- round(exp(predict(model3, newdata = data.frame(nTime = x3))))
   if (p == target) {break} # reached the target!
   if (p < target) {x3 <- x3 + 1} # increment one second
@@ -200,7 +247,7 @@ with_tz(prediction_time3, tz = "GMT")
 
 ## Results
 
-The simple linear model prediction (*model 1* : GMT `r with_tz(prediction_time1, tz = "GMT")`)  and varying exponential model prediction (*model3* : GMT `r with_tz(prediction_time3, tz = "GMT")`) are similar.
+The simple linear model prediction (*model1* : GMT `r with_tz(prediction_time1, tz = "GMT")`)  and varying exponential model prediction (*model3* : GMT `r with_tz(prediction_time3, tz = "GMT")`) are similar.
 
 ## Commentary
 
@@ -210,7 +257,7 @@ Although population growth is often modeled as exponential growth, the current h
 
 All three growth models base current growth on the entirety of the world population. In reality, only some age strata contribute to population growth. The size of these strata, and the reproductive rate of these strata, vary widely across the societies of the world.
 
-Unable to predict if www.worldometers.info will change their model over the next few weeks to deal with unexpected influences on population, e.g. COVID-19 [@roser2020owid]!
+Over the next few weeks www.worldometers.info might change their model to deal with unexpected influences on population, e.g. COVID-19 [@roser2020owid]!
 
 # References
 
