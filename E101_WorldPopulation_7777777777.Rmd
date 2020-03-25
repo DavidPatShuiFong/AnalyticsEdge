@@ -163,7 +163,7 @@ Population 'target' of `r comma(target, digits = 0)` indicated with the horizont
 
 time_range <- ymd_hms("2020-03-05 04:04:00", tz = "Australia/Melbourne"):
   ymd_hms("2020-04-30 00:00:00", tz = "Australia/Melbourne")
-time_range <- time_range[seq(1, length(time_range), 3600)] # only keep one 'x' value per hour
+time_range <- time_range[seq(1, length(time_range), 60*60*24*7)] # only keep one 'x' value per seven days
 time_range <- as_datetime(time_range) # convert back to times
 
 pred1 <- data.frame(Time = time_range,
@@ -186,10 +186,12 @@ plotdata <- bind_rows(d %>% mutate(Observation = "Sample", Model = NA),
 ggplot(plotdata, aes(x = Time, y = Population)) +
   geom_point(aes(shape = Observation)) + # the data used for modeling and testing
   scale_shape_manual(values = c(25,24), breaks = c("Sample", "Test")) +
-  geom_line(aes(group = Model, color = Model)) +
+  geom_line(aes(group = Model, color = Model, linetype = Model)) +
   scale_color_manual(values = c("red", "green", "blue"),
                      breaks = c("Model1", "Model2", "Model3"),
                      guide = guide_legend(override.aes = list(shape = rep(NA, 3)))) +
+  scale_linetype_manual(values = c("twodash", "dotted", "dashed"),
+                        breaks = c("Model1", "Model2", "Model3")) +
   theme_light() +
   geom_hline(yintercept = target, color = "gold1", linetype = "dashed", size = 1) +
   expand_limits(x = ymd_hms("2020-04-30 00:00:00", tz = "Australia/Melbourne"))
